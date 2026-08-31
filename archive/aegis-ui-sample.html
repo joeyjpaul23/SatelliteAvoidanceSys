@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AEGIS — Conjunction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07080a;
+      --rail: #0c0d10;
+      --line: #2a2d32;
+      --text: #e6e4df;
+      --muted: #8b8e93;
+      --dim: #5c5f64;
+      --green: #3dff8a;
+      --yellow: #e8c547;
+      --orange: #e07a3d;
+      --red: #e23b2f;
+      --rail-w: 360px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg); color: var(--text);
+      font-family: "IBM Plex Sans", system-ui, sans-serif; overflow: hidden; }
+    #app { display: flex; height: 100%; }
+    #viewport { flex: 1; position: relative; min-width: 0; }
+    #globe { position: absolute; inset: 0; }
+    #chrome {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; align-items: baseline; gap: 16px;
+      padding: 16px 20px; pointer-events: none;
+    }
+    .mark { font-family: "IBM Plex Mono", monospace; font-size: 11px;
+      letter-spacing: 0.22em; font-weight: 500; }
+    .mark span { color: var(--muted); letter-spacing: 0.18em; margin-left: 10px; font-weight: 400; }
+    #status {
+      margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 10px;
+      letter-spacing: 0.08em; color: var(--muted); display: flex; gap: 14px;
+    }
+    #status .warn { color: var(--yellow); }
+    #scrub {
+      position: absolute; left: 20px; right: 20px; bottom: 18px;
+      display: flex; align-items: center; gap: 12px;
+      font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted);
+    }
+    #scrub input { flex: 1; accent-color: var(--text); height: 2px; }
+    #rail {
+      width: var(--rail-w); border-left: 1px solid var(--line);
+      background: var(--rail); display: flex; flex-direction: column;
+      font-size: 12px; overflow: hidden;
+    }
+    section { border-bottom: 1px solid var(--line); padding: 14px 16px; }
+    section h2 {
+      font-family: "IBM Plex Mono", monospace; font-size: 10px;
+      letter-spacing: 0.16em; color: var(--muted); font-weight: 500;
+      margin-bottom: 10px;
+    }
+    .kv { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px;
+      font-family: "IBM Plex Mono", monospace; font-size: 11px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill {
+      display: inline-block; font-family: "IBM Plex Mono", monospace;
+      font-size: 9px; letter-spacing: 0.12em; padding: 2px 6px;
+      border: 1px solid var(--line);
+    }
+    .pill.act { color: var(--red); border-color: #5a221e; }
+    .pill.watch { color: var(--orange); border-color: #5a3a22; }
+    .pill.mon { color: var(--yellow); border-color: #4a4218; }
+    .honesty {
+      font-family: "IBM Plex Mono", monospace; font-size: 10px;
+      color: var(--yellow); line-height: 1.45; margin-top: 10px;
+    }
+    .events { flex: 1; overflow: auto; padding: 0; }
+    .events h2 { padding: 14px 16px 8px; margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-family: "IBM Plex Mono", monospace; font-size: 10px; }
+    th { text-align: left; color: var(--dim); font-weight: 400; letter-spacing: 0.08em;
+      padding: 4px 16px 8px; border-bottom: 1px solid var(--line); }
+    td { padding: 7px 16px; border-bottom: 1px solid #16181c; cursor: pointer; }
+    tr:hover td { background: #121318; }
+    tr.sel td { background: #16181e; }
+    .c-act { color: var(--red); }
+    .c-watch { color: var(--orange); }
+    .c-mon { color: var(--yellow); }
+    .c-ok { color: var(--green); }
+    input[type=range] { width: 100%; accent-color: var(--text); }
+    .slider-row { display: flex; justify-content: space-between; color: var(--muted);
+      font-family: "IBM Plex Mono", monospace; font-size: 10px; margin-top: 4px; }
+    .flags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .flag { font-family: "IBM Plex Mono", monospace; font-size: 9px; letter-spacing: 0.08em;
+      color: var(--muted); border: 1px solid var(--line); padding: 2px 5px; }
+    .flag.on { color: var(--yellow); border-color: #3d3820; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="viewport">
+      <div id="globe"></div>
+      <div id="chrome">
+        <div class="mark">AEGIS<span>CONJUNCTION</span></div>
+        <div id="status">
+          <span>CELESTRAK</span>
+          <span class="warn">FALLBACK SLICE</span>
+          <span>SYNTHETIC_TLE</span>
+          <span>N=40</span>
+        </div>
+      </div>
+      <div id="scrub">
+        <span>T+00:00</span>
+        <input type="range" min="0" max="90" value="18" />
+        <span>T+01:30</span>
+      </div>
+    </div>
+    <aside id="rail">
+      <section>
+        <h2>SOURCE</h2>
+        <dl class="kv">
+          <dt>PATH</dt><dd>CELESTRAK / STARLINK</dd>
+          <dt>FETCH</dt><dd>2026-08-30T16:02:11Z</dd>
+          <dt>QUERY</dt><dd>gp.php?GROUP=starlink</dd>
+          <dt>EPOCH</dt><dd>2026-08-30T13:19:57Z</dd>
+          <dt>COV</dt><dd>SYNTHETIC_TLE</dd>
+        </dl>
+        <p class="honesty">DISPLAY BAND inflates one step — TLE covariance. Ranking only. Not an operational go/no-go.</p>
+      </section>
+      <section>
+        <h2>CATALOG</h2>
+        <div class="slider-row"><span>OBJECTS</span><span>40 / 200</span></div>
+        <input type="range" min="1" max="200" value="40" />
+        <dl class="kv" style="margin-top:10px">
+          <dt>WINDOW</dt><dd>5400 s</dd>
+          <dt>STEP</dt><dd>60 s</dd>
+          <dt>BOX RTN</dt><dd>2 × 44 × 51 km</dd>
+        </dl>
+      </section>
+      <section>
+        <h2>SELECTED  ·  44714 / 44718</h2>
+        <div style="margin-bottom:10px">
+          <span class="pill act">ACT</span>
+          <span class="pill" style="margin-left:6px;color:var(--muted)">DISPLAY +1 TLE</span>
+        </div>
+        <dl class="kv">
+          <dt>PC ALFANO</dt><dd class="c-act">1.4e-4</dd>
+          <dt>PC CHAN</dt><dd>1.3e-4</dd>
+          <dt>MISS</dt><dd>0.82 km</dd>
+          <dt>TCA</dt><dd>T+00:18:12</dd>
+          <dt>VREL</dt><dd>12.4 km/s</dd>
+          <dt>MAHAL</dt><dd>1.9</dd>
+          <dt>σ RTN</dt><dd>0.18 / 1.4 / 0.22 km</dd>
+        </dl>
+        <div class="flags">
+          <span class="flag on">DILUTION</span>
+          <span class="flag">REMEDIATED</span>
+          <span class="flag">SHORT OK</span>
+          <span class="flag">LOW VREL</span>
+        </div>
+      </section>
+      <div class="events">
+        <h2>EVENTS</h2>
+        <table>
+          <thead><tr><th>PAIR</th><th>PC</th><th>MISS</th><th></th></tr></thead>
+          <tbody>
+            <tr class="sel"><td>44714/44718</td><td class="c-act">1.4e-4</td><td>0.82</td><td class="c-act">ACT</td></tr>
+            <tr><td>44722/44731</td><td class="c-watch">3.1e-5</td><td>2.4</td><td class="c-watch">WATCH</td></tr>
+            <tr><td>44714/44755</td><td class="c-mon">8.0e-7</td><td>6.1</td><td class="c-mon">MON</td></tr>
+            <tr><td>44760/44771</td><td class="c-ok">2.2e-9</td><td>18.0</td><td class="c-ok">CLR</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <section>
+        <h2>PLAN</h2>
+        <dl class="kv">
+          <dt>BURNS</dt><dd>1</dd>
+          <dt>ΔV</dt><dd>18.4 mm/s</dd>
+          <dt>RESOLVED</dt><dd>2 / 3</dd>
+          <dt>UNRESOLVED</dt><dd>1 · 0.31 km short</dd>
+          <dt>CONVERGED</dt><dd>TRUE</dd>
+        </dl>
+      </section>
+    </aside>
+  </div>
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.1/build/three.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+
+    const mount = document.getElementById("globe");
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.setClearColor(0x07080a, 1);
+    mount.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, mount.clientWidth / mount.clientHeight, 1, 80000);
+    camera.position.set(0, 6200, 22000);
+
+    const R = 6378.137;
+    const earthGeo = new THREE.SphereGeometry(R, 64, 48);
+    const earthMat = new THREE.MeshPhongMaterial({
+      color: 0x3d5a73,
+      emissive: 0x15202c,
+      specular: 0x334455,
+      shininess: 12,
+    });
+    const earth = new THREE.Mesh(earthGeo, earthMat);
+    scene.add(earth);
+
+    const tex = new THREE.TextureLoader().load(
+      "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_atmos_2048.jpg",
+      (t) => { earthMat.map = t; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; }
+    );
+    tex.colorSpace = THREE.SRGBColorSpace;
+
+    const limb = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.018, 64, 48),
+      new THREE.MeshBasicMaterial({ color: 0x6ea8c9, transparent: true, opacity: 0.07, side: THREE.BackSide })
+    );
+    scene.add(limb);
+
+    scene.add(new THREE.AmbientLight(0xa8b8c8, 0.85));
+    const sun = new THREE.DirectionalLight(0xfff4e6, 1.7);
+    sun.position.set(-8000, 6000, 14000);
+    scene.add(sun);
+
+    const stars = new THREE.BufferGeometry();
+    const starPos = new Float32Array(1800 * 3);
+    for (let i = 0; i < 1800; i++) {
+      const u = Math.random() * 2 - 1, v = Math.random() * 2 - 1, w = Math.random() * 2 - 1;
+      const n = Math.hypot(u, v, w) || 1;
+      starPos.set([(u / n) * 48000, (v / n) * 48000, (w / n) * 48000], i * 3);
+    }
+    stars.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(stars, new THREE.PointsMaterial({ color: 0x9aa0a8, size: 1.2 })));
+
+    const BAND = { CLEAR: 0x3dff8a, MONITOR: 0xe8c547, WATCH: 0xe07a3d, ACT: 0xe23b2f };
+    const sats = [
+      { a: 6921, i: 0.93, o: 0.20, m: 0.4, band: "ACT" },
+      { a: 6921, i: 0.93, o: 0.21, m: 0.55, band: "ACT" },
+      { a: 6930, i: 0.92, o: 1.4, m: 1.1, band: "WATCH" },
+      { a: 6935, i: 0.91, o: 2.2, m: 2.0, band: "WATCH" },
+      { a: 6910, i: 1.05, o: 3.4, m: 0.2, band: "MONITOR" },
+      { a: 6940, i: 0.88, o: 4.1, m: 3.2, band: "CLEAR" },
+      { a: 6905, i: 1.2, o: 5.0, m: 4.0, band: "CLEAR" },
+      { a: 6928, i: 0.95, o: 5.6, m: 1.7, band: "CLEAR" },
+    ];
+
+    function orbitPoints(s, n = 180) {
+      const pts = [];
+      const ci = Math.cos(s.i), si = Math.sin(s.i);
+      const co = Math.cos(s.o), so = Math.sin(s.o);
+      for (let k = 0; k <= n; k++) {
+        const nu = s.m + (k / n) * Math.PI * 2;
+        const x = s.a * Math.cos(nu), y = s.a * Math.sin(nu);
+        pts.push(new THREE.Vector3(
+          x * co - y * so * ci,
+          y * si,
+          x * so + y * co * ci
+        ));
+      }
+      return pts;
+    }
+
+    const nodes = [];
+    for (const s of sats) {
+      const pts = orbitPoints(s);
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
+        color: BAND[s.band], transparent: true,
+        opacity: s.band === "CLEAR" ? 0.45 : 0.95,
+      }));
+      scene.add(line);
+      const node = new THREE.Mesh(
+        new THREE.SphereGeometry(38, 10, 10),
+        new THREE.MeshBasicMaterial({ color: BAND[s.band] })
+      );
+      node.position.copy(pts[12]);
+      scene.add(node);
+      nodes.push({ node, pts });
+    }
+
+    const chord = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([nodes[0].node.position, nodes[1].node.position]),
+      new THREE.LineBasicMaterial({ color: 0xe23b2f })
+    );
+    scene.add(chord);
+
+    let dragging = false, lx = 0, ly = 0, yaw = 0.35, pitch = 0.28;
+    mount.addEventListener("pointerdown", (e) => { dragging = true; lx = e.clientX; ly = e.clientY; });
+    window.addEventListener("pointerup", () => { dragging = false; });
+    window.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      yaw += (e.clientX - lx) * 0.005;
+      pitch = Math.max(-1.1, Math.min(1.1, pitch + (e.clientY - ly) * 0.004));
+      lx = e.clientX; ly = e.clientY;
+    });
+    mount.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const d = camera.position.length();
+      camera.position.setLength(Math.max(9000, Math.min(42000, d + e.deltaY * 8)));
+    }, { passive: false });
+
+    function placeCam() {
+      const d = camera.position.length();
+      camera.position.set(
+        d * Math.cos(pitch) * Math.sin(yaw),
+        d * Math.sin(pitch),
+        d * Math.cos(pitch) * Math.cos(yaw)
+      );
+      camera.lookAt(0, 0, 0);
+    }
+
+    function onResize() {
+      camera.aspect = mount.clientWidth / mount.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(mount.clientWidth, mount.clientHeight);
+    }
+    window.addEventListener("resize", onResize);
+
+    (function loop() {
+      requestAnimationFrame(loop);
+      earth.rotation.y += 0.00035;
+      placeCam();
+      renderer.render(scene, camera);
+    })();
+  </script>
+</body>
+</html>

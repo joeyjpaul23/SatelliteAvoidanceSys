@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AEGIS — Conjunction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/console.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="viewport">
+      <div id="globe"></div>
+      <div id="chrome">
+        <div class="mark">AEGIS<span>CONJUNCTION</span></div>
+        <div id="status">
+          <span id="status-source">CELESTRAK</span>
+          <span id="status-fallback" class="warn hidden"></span>
+          <span id="status-cov">SYNTHETIC_TLE</span>
+          <span id="status-n">N=40</span>
+        </div>
+      </div>
+      <div id="sat-hover" class="sat-label hidden"></div>
+      <div id="scrub">
+        <span id="scrub-start">T+00:00</span>
+        <input id="time-slider" type="range" min="0" max="90" value="0" />
+        <span id="scrub-end">T+01:30</span>
+      </div>
+    </div>
+    <aside id="rail">
+      <section>
+        <h2>SOURCE</h2>
+        <dl class="kv">
+          <dt>PATH</dt><dd id="src-path">—</dd>
+          <dt>FETCH</dt><dd id="src-fetch">—</dd>
+          <dt>QUERY</dt><dd id="src-query">—</dd>
+          <dt>EPOCH</dt><dd id="src-epoch">—</dd>
+          <dt>COV</dt><dd id="src-cov">—</dd>
+        </dl>
+        <p id="honesty" class="honesty"></p>
+      </section>
+      <section>
+        <h2>CATALOG</h2>
+        <div class="slider-row"><span>OBJECTS</span><span id="object-count-label">40 / 200</span></div>
+        <input id="object-slider" type="range" min="1" max="200" value="40" />
+        <dl class="kv" style="margin-top:10px">
+          <dt>WINDOW</dt><dd id="cat-window">—</dd>
+          <dt>STEP</dt><dd id="cat-step">—</dd>
+          <dt>BOX RTN</dt><dd id="cat-box">2 × 44 × 51 km</dd>
+        </dl>
+        <div id="objects-body" class="object-list"></div>
+      </section>
+      <section id="selected-section">
+        <h2 id="selected-title">SELECTED</h2>
+        <div id="selected-pills"></div>
+        <dl class="kv" id="selected-kv">
+          <dt>PC ALFANO</dt><dd>—</dd>
+        </dl>
+        <div id="selected-flags" class="flags"></div>
+      </section>
+      <div class="events">
+        <h2>EVENTS</h2>
+        <table>
+          <thead><tr><th>PAIR</th><th>PC</th><th>MISS</th><th></th></tr></thead>
+          <tbody id="events-body"></tbody>
+        </table>
+      </div>
+      <section>
+        <h2>PLAN</h2>
+        <dl class="kv" id="plan-kv">
+          <dt>BURNS</dt><dd>—</dd>
+        </dl>
+      </section>
+    </aside>
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="/js/console.js?v=15"></script>
+</body>
+</html>
