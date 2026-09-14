@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OrbitLab</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <canvas id="orbit-canvas" aria-label="Earth-centered inertial orbit model"></canvas>
+  <div id="reference">GCRF / J2000<br>ECI · km · s</div>
+  <button id="data-toggle" aria-expanded="false">DATA</button>
+
+  <aside id="data-panel" hidden>
+    <button id="data-close" aria-label="Close data panel">×</button>
+    <label for="object-select">OBJECT</label>
+    <select id="object-select"></select>
+
+    <section>
+      <h2>STATE</h2>
+      <dl>
+        <dt>t</dt><dd id="d-time">—</dd>
+        <dt>r ECI</dt><dd id="d-r">—</dd>
+        <dt>v ECI</dt><dd id="d-v">—</dd>
+        <dt>|r|</dt><dd id="d-rmag">—</dd>
+        <dt>|v|</dt><dd id="d-vmag">—</dd>
+        <dt>altitude</dt><dd id="d-alt">—</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>OSCULATING ELEMENTS</h2>
+      <dl>
+        <dt>a</dt><dd id="d-a">—</dd>
+        <dt>e</dt><dd id="d-e">—</dd>
+        <dt>i</dt><dd id="d-i">—</dd>
+        <dt>Ω</dt><dd id="d-raan">—</dd>
+        <dt>ω</dt><dd id="d-argp">—</dd>
+        <dt>ν</dt><dd id="d-nu">—</dd>
+        <dt>Δε₂body</dt><dd id="d-energy">—</dd>
+        <dt>ρ</dt><dd id="d-rho">—</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>FORCE MODEL</h2>
+      <p>r̈ = −μr/r³ + a<sub>J₂</sub> + a<sub>D</sub> + a<sub>SRP</sub></p>
+      <dl>
+        <dt>μ</dt><dd id="d-mu">—</dd>
+        <dt>Rₑ</dt><dd id="d-radius">—</dd>
+        <dt>J₂</dt><dd id="d-j2">—</dd>
+        <dt>Δt</dt><dd id="d-step">—</dd>
+        <dt>integrator</dt><dd id="d-integrator">—</dd>
+      </dl>
+      <p class="forces">CENTRAL GRAVITY<br>J₂ OBLATENESS<br>CO-ROTATING DRAG<br>SOLAR PRESSURE + ECLIPSE</p>
+    </section>
+
+    <section>
+      <h2>CLOSEST APPROACH</h2>
+      <dl>
+        <dt>pair</dt><dd id="d-pair">—</dd>
+        <dt>tca</dt><dd id="d-tca">—</dd>
+        <dt>miss</dt><dd id="d-miss">—</dd>
+        <dt>|vrel|</dt><dd id="d-vrel">—</dd>
+      </dl>
+    </section>
+  </aside>
+
+  <div id="controls">
+    <button id="play" aria-label="Play">▶</button>
+    <span id="clock">T+00:00:00</span>
+    <input id="timeline" type="range" min="0" value="0" aria-label="Simulation time">
+    <span id="end-time">06:00:00</span>
+  </div>
+  <div id="hint">drag: rotate · wheel: scale · click orbit: select</div>
+
+  <script src="telemetry.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

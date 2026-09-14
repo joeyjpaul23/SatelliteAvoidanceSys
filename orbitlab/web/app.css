@@ -1,0 +1,38 @@
+:root {
+  color-scheme: dark;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  color: #b9c0c4;
+  background: #000;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+button, select, input { font: inherit; }
+#orbit-canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#orbit-canvas.dragging { cursor: grabbing; }
+#reference { position: fixed; top: 16px; left: 18px; color: #5e666b; font-size: 9px; line-height: 1.6; letter-spacing: .08em; pointer-events: none; }
+#data-toggle { position: fixed; top: 14px; right: 16px; color: #8d969b; background: #000; border: 1px solid #343b3f; padding: 6px 9px; cursor: pointer; }
+#data-toggle:hover, #data-toggle[aria-expanded="true"] { color: #fff; border-color: #777; }
+#data-panel { position: fixed; inset: 0 0 0 auto; width: min(390px, 100vw); overflow-y: auto; background: #030303; border-left: 1px solid #343b3f; padding: 20px 22px 70px; }
+#data-close { position: absolute; top: 12px; right: 14px; border: 0; background: none; color: #888; font-size: 20px; cursor: pointer; }
+#data-panel > label { display: block; color: #666; margin: 3px 0 6px; font-size: 9px; }
+#object-select { width: calc(100% - 32px); padding: 7px; color: #ddd; background: #000; border: 1px solid #343b3f; }
+#data-panel section { margin-top: 26px; }
+#data-panel h2 { margin: 0 0 10px; color: #777; font-size: 9px; font-weight: 400; letter-spacing: .1em; }
+#data-panel dl { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 7px 10px; margin: 0; }
+#data-panel dt { color: #676e72; }
+#data-panel dd { margin: 0; color: #d2d6d8; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+#data-panel p { margin: 0; color: #c1c5c7; line-height: 1.7; }
+#data-panel .forces { margin-top: 12px; color: #72797d; font-size: 9px; }
+#controls { position: fixed; left: 18px; right: 18px; bottom: 18px; display: flex; align-items: center; gap: 12px; color: #777; font-variant-numeric: tabular-nums; }
+#play { width: 28px; height: 28px; color: #aaa; background: #000; border: 1px solid #3d4448; cursor: pointer; }
+#clock { color: #c4c9cb; min-width: 74px; }
+#timeline { flex: 1; height: 2px; accent-color: #b8c0c3; }
+#end-time { color: #555; }
+#hint { position: fixed; left: 50%; bottom: 54px; transform: translateX(-50%); color: #363b3e; font-size: 9px; pointer-events: none; }
+@media (max-width: 600px) {
+  #reference { top: 12px; left: 12px; }
+  #data-toggle { top: 10px; right: 10px; }
+  #controls { left: 10px; right: 10px; bottom: 12px; gap: 8px; }
+  #end-time, #hint { display: none; }
+}
