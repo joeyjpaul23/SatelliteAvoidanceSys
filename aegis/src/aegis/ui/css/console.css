@@ -226,6 +226,11 @@ input[type=range] { width: 100%; accent-color: var(--text); }
   letter-spacing: 0.04em;
 }
 
+td.pick-hint {
+  margin-top: 0;
+  padding: 10px 0;
+}
+
 .sat-label {
   position: absolute;
   transform: translate(12px, -18px);

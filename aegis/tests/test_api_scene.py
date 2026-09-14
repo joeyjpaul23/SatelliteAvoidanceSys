@@ -15,7 +15,7 @@ from aegis.api import app
 from aegis.ingest.celestrak import CelesTrakError
 
 _SLICE = Path(__file__).resolve().parent / "fixtures" / "starlink_slice.tle"
-_COLOR_BANDS = frozenset({"CLEAR", "MONITOR", "WATCH", "ACT"})
+_AT_RISK_BANDS = frozenset({"MONITOR", "WATCH", "ACT"})
 _FAKE_NAME_MARKERS = (
     "SYNTHETIC-",
     "SYNTHETIC OPERATOR",
@@ -99,7 +99,7 @@ def _assert_not_synthetic_catalog(payload: dict) -> None:
 
 def test_live_fail_falls_back_to_slice(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_live_fail(monkeypatch)
-    response = _get_scene(_client(), max_objects=5, live=1)
+    response = _get_scene(_client(), max_objects=5, duration_s=600, live=1)
 
     assert response.status_code == 200
     payload = response.json()
@@ -108,15 +108,35 @@ def test_live_fail_falls_back_to_slice(monkeypatch: pytest.MonkeyPatch) -> None:
     _assert_not_synthetic_catalog(payload)
 
     objects = payload["objects"]
+    assert isinstance(objects, list)
     if _SLICE.is_file():
-        assert objects, (
-            "committed slice exists; scene objects must not be empty on fallback"
-        )
+        assert payload["screened_objects"] > 0
+        assert payload["fallback"] == "slice"
+
+
+def test_scene_fallback_includes_debris(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_live_fail(monkeypatch)
+    response = _get_scene(_client(), max_objects=8, duration_s=600, live=1)
+
+    assert response.status_code == 200
+    payload = response.json()
+    query = str(payload.get("query") or "").upper()
+    assert payload["screened_objects"] == 8
+    assert "STARLINK" in query or "STARLINK" in " ".join(
+        str(obj.get("name") or "") for obj in payload["objects"]
+    ).upper()
+    assert "DEB" in query or "DEBRIS" in query
+    assert payload["duration_s"] == pytest.approx(600)
+    objects = payload["objects"]
+    if objects:
+        names = " ".join(str(obj.get("name") or "") for obj in objects)
+        roles = {obj.get("role") for obj in objects}
+        assert "STARLINK" in names.upper() or "debris" in roles
 
 
 def test_max_objects_five_caps_scene(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_live_fail(monkeypatch)
-    response = _get_scene(_client(), max_objects=5, live=0)
+    response = _get_scene(_client(), max_objects=5, duration_s=600, live=0)
 
     assert response.status_code == 200
     payload = response.json()
@@ -134,18 +154,42 @@ def test_max_objects_over_cap_returns_400(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_scene_color_band_and_honesty(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_live_fail(monkeypatch)
-    response = _get_scene(_client(), max_objects=5, live=0)
+    response = _get_scene(_client(), max_objects=5, duration_s=600, live=0)
 
     assert response.status_code == 200
     payload = response.json()
     objects = payload["objects"]
     assert isinstance(objects, list)
-    assert objects
     for obj in objects:
-        assert obj["color_band"] in _COLOR_BANDS
+        assert obj["color_band"] in _AT_RISK_BANDS
+        assert obj["color_band"] != "CLEAR"
 
     honesty = payload["honesty"]
     assert isinstance(honesty, list)
     assert honesty
     assert all(isinstance(line, str) for line in honesty)
     assert any("SYNTHETIC_TLE" in line for line in honesty)
+    assert any("MONITOR" in line and "WATCH" in line for line in honesty)
+
+
+def test_scene_omits_clear_events_and_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_live_fail(monkeypatch)
+    response = _get_scene(_client(), max_objects=8, duration_s=600, live=0)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "screened_objects" in payload
+    assert payload["screened_objects"] == 8
+    for obj in payload["objects"]:
+        assert obj["color_band"] in _AT_RISK_BANDS
+        assert obj["color_band"] != "CLEAR"
+    for row in payload["conjunctions"]:
+        assert row["display_band"] in _AT_RISK_BANDS
+        assert row["display_band"] != "CLEAR"
+    displayed_ids = {obj["id"] for obj in payload["objects"]}
+    for row in payload["conjunctions"]:
+        assert row["primary_id"] in displayed_ids
+        assert row["secondary_id"] in displayed_ids
+    if not payload["conjunctions"]:
+        assert payload["objects"] == []
+        assert any("No MONITOR+" in line for line in payload["honesty"])

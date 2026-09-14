@@ -18,7 +18,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
+# The research layer. `aegis.fleetopt`, `aegis.scenarios` and
+# `aegis.experiments` need nothing beyond the base dependencies; these are for
+# the learning and storage layers, and every module that uses them imports
+# them lazily so the package still imports without them.
+research = ["torch>=2.0", "pyarrow>=14", "pandas"]
+cloud = ["boto3", "google-cloud-storage", "psycopg[binary]"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

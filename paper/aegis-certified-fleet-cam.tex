@@ -1,0 +1,630 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{siunitx}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}[proposition]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[proposition]{Remark}
+
+\newcommand{\dv}{\Delta v}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\lVert #1 \rVert}
+
+\title{Certified Fleet-Wide Collision Avoidance:\\
+Constraining Induced Conjunctions Inside the Optimizer,\\
+and Measuring What It Costs}
+
+\author{AEGIS Project\thanks{Source, contracts, and every number in this paper:
+\url{https://github.com/} --- see \texttt{aegis/specs/step14\_fleet\_optimization.md}
+for the implementation contract and \texttt{docs/} for the measurement record.}}
+
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Collision avoidance maneuver (CAM) optimization is mature for one spacecraft
+facing passive secondaries. It is not mature for a fleet, and the gap is
+specific: the multi-encounter literature assumes that resolving one conjunction
+does not create another, while measurements at mega-constellation scale show
+that \SI{81.4}{\percent} of Starlink-on-Starlink maneuvers are cascade-induced.
+Operators handle the cascade with an outer re-screening loop, which can
+discover an induced conjunction but cannot prevent one, and offers no
+completeness guarantee.
+
+We put the condition inside the optimizer. Three results make that tractable
+and trustworthy. First, a \emph{reachability bound}: given a per-satellite
+$\dv$ budget, an inflated, time-varying screening gate provably enumerates
+every pair that \emph{any} admissible plan could bring within an exclusion
+radius, converting ``re-screen and hope'' into a certified candidate set.
+Second, an \emph{exact-penalty threshold}: the apparent $\dv$-versus-risk
+tradeoff observed under a soft penalty is an artifact of choosing the penalty
+below the largest optimal dual, and above that computable threshold the soft
+and hard formulations coincide. Third, the $\dv$-versus-induced-risk Pareto
+frontier is \emph{convex and piecewise linear} with dual-valued slopes, so it
+is computable exactly rather than sampled; we verify convexity to
+\num{9e-19} and slope--dual agreement to \num{1.5e-13}.
+
+We measure the \emph{safety premium} --- the extra $\dv$ a coordinated plan
+pays to create no new conjunction --- and find it is governed by how tightly
+the fleet is packed rather than by the number of conjunctions: a median of
+\SI{2.7}{\percent} with a p90 of \SI{8.1}{\percent} for in-plane neighbour
+spacings of \SIrange{4.5}{12}{\kilo\meter}, rising to infeasibility at
+\SI{3}{\kilo\meter}. The median sits inside the \SIrange{1.1}{3.8}{\percent}
+range published for single-spacecraft multi-encounter CAM under stronger
+probability margins, from an entirely different formulation.
+
+Finally we report a certified acceleration and a negative result. Solving with
+a subset of the induced-conjunction rows and closing the gap with a
+lazy-constraint loop returns the \emph{exact} optimum of the full problem for
+any guess --- verified to machine epsilon over an empty, a learned, and an
+adversarial guess --- and yields \numrange{1.8}{9.0}$\times$ speedups as the
+problem grows. A physics-informed graph neural network trained to supply that
+guess did \emph{not} beat starting from the empty set, for reasons we quantify.
+\end{abstract}
+
+\section{Introduction}
+
+The object of study is one sentence: given a network of simultaneous
+conjunctions across a maneuverable fleet, compute one coordinated set of
+impulsive maneuvers minimizing total fleet $\dv$ subject to resolving every
+modelled conjunction and creating no new one.
+
+The single-spacecraft version of this problem is well solved. Convex and
+sequential-convex formulations compute fuel-optimal CAMs against multiple
+simultaneous encounters~\cite{armellin2021,pavanello2024}, with keep-out zones
+convexified by the supporting-hyperplane technique introduced for ellipsoidal
+zones by Mueller~\cite{mueller2009} and formalized as projection-and-lin\-ear\-i\-za\-tion
+by Mao et al.~\cite{mao2017}. That literature is explicit about what it
+assumes. Pavanello et al.\ state it plainly: ``from an operational point of
+view, there is no reason to suppose that a close approach with a particular
+secondary is likely to promote a close approach with some other
+secondary''~\cite{pavanello2024}.
+
+Chen et al.\ measured that supposition at scale and found it
+false~\cite{chen2024}: \SI{81.4}{\percent} of Starlink-on-Starlink maneuvers
+are cascade-induced, a single external avoidance event triggered as many as 41
+induced maneuvers, and \SI{79.5}{\percent} of network lifetime is lost to
+cascades. The gap between those two sentences is this paper.
+
+Operationally the cascade is handled by an outer loop: generate the
+post-maneuver ephemeris, resubmit it for a fresh screening, repeat. NASA's
+Conjunction Assessment Best Practices Handbook describes exactly this and calls
+it the best available approach~\cite{nasa2023}. The loop has two structural
+limits. It has no termination guarantee, and --- more importantly --- it
+re-screens the one trajectory the optimizer happened to choose, so it can only
+discover conjunctions that plan created. It cannot say which pairs the
+optimizer had the \emph{power} to endanger, which is exactly what a constraint
+needs to know.
+
+\subsection{Contributions}
+
+\begin{enumerate}
+\item \textbf{A reachability-certified candidate set} (Propositions~\ref{prop:reach}
+and~\ref{prop:complete}). A bound on displacement under a $\dv$ budget yields
+an inflated screening gate that provably enumerates every pair any admissible
+plan could turn into a conjunction. We find no prior art for a completeness
+proof over a \emph{set} of admissible-but-unknown maneuvers; the closest
+work~\cite{rivero2025} requires the actual planned ephemeris and establishes
+zero false negatives empirically.
+
+\item \textbf{Induced-conjunction constraints inside the program}, with a
+second-order inflation derived from the \emph{tidal} relative acceleration
+rather than from relative speed. The distinction is not cosmetic: at a
+\SI{30}{\second} step the na\"ive Lipschitz bound is \SI{285}{\kilo\meter} and
+the tidal bound is \SI{0.55}{\kilo\meter}, and only the second leaves a
+\SI{2}{\kilo\meter} exclusion radius meaning anything.
+
+\item \textbf{Structural results on the tradeoff} (Propositions~\ref{prop:penalty}
+and~\ref{prop:frontier}): an exact-penalty threshold that dissolves the apparent
+fuel-versus-risk tradeoff, and convex piecewise-linear structure that makes the
+Pareto frontier exactly computable. Both are classical optimization theorems;
+the contribution is the instantiation and the verification.
+
+\item \textbf{A Farkas certificate} naming which conjunctions are mutually
+irreconcilable when no zero-induced plan exists, so ``infeasible'' becomes
+``resolving $A$ and $B$ together necessarily brings $C$ inside the exclusion
+radius.''
+
+\item \textbf{The safety premium, measured} and stratified by graph structure
+and by fleet packing --- to our knowledge the first fleet-level, $\dv$-denominated
+cost-of-safety curve for induced conjunctions.
+
+\item \textbf{A certified acceleration, and an honest negative result} on the
+learned component (Section~\ref{sec:accel}).
+
+\item \textbf{A relative-velocity condition on the inflation bound.} The
+second-order inflation of contribution~2 bounds the \emph{curvature} of the
+relative trajectory and is therefore conditional on the relative velocity at
+the constrained minimum being small --- a condition that holds for co-orbital
+pairs, fails for crossings, and is not usually stated. Where it fails a
+sampled grid locates nothing: we exhibit a \SI{7.24}{\kilo\meter\per\second}
+crossing whose \SI{143}{\meter} minimum lies between \SI{30}{\second} samples
+reading \SI{76}{} and \SI{141}{\kilo\meter}. Bracketing by range-rate sign
+change and refining by cubic Hermite restores the guarantee independently of
+the step, and is what makes the zero result hold across budgets rather than at
+one.
+
+\item \textbf{Lazy epoch generation, and the two failure modes it exposes.}
+Constraining local minima of the \emph{nominal} separation is insufficient ---
+for a co-orbital pair that separation is flat, and the maneuver itself creates
+the time-variation --- so the epochs that matter are discovered from the solved
+plan rather than guessed beforehand. Once rows are generated this way, two
+things break that do not break otherwise: a formulation that pins an attained
+safety level measured on the enumerated rows becomes infeasible the moment a
+row is added and silently falls back to an unrefined plan, and a certificate
+evaluated on the enumerated rows will call a plan safe while it violates a row
+the generation itself produced. Both are stated and fixed in
+Section~\ref{sec:experiments}.
+\end{enumerate}
+
+We are explicit about what is \emph{not} new. The supporting-hyperplane
+convexification is standard~\cite{mueller2009,mao2017,armellin2021} and is used
+here as machinery, not claimed. The exact-penalty and parametric-LP theorems
+are textbook~\cite{bertsekas1999,schrijver1986}.
+
+\section{Formulation}
+
+\subsection{Decision variables and displacement}
+
+Let $\mathcal{F}$ be the maneuverable fleet. Satellite $i$ has candidate burn
+epochs $\tau_{i,1} < \cdots < \tau_{i,K_i}$ and impulses
+$\dv_{i,k} \in \R^3$ in its RTN frame, stacked into
+$x \in \R^{3\sum_i K_i}$.
+
+Everything the optimizer knows about dynamics enters through the exact
+Clohessy--Wiltshire position-from-impulse block, with $s=\sin(n\sigma)$,
+$c=\cos(n\sigma)$:
+\begin{equation}
+\Phi(n,\sigma) =
+\begin{bmatrix}
+s/n & 2(1-c)/n & 0\\
+2(c-1)/n & (4s-3n\sigma)/n & 0\\
+0 & 0 & s/n
+\end{bmatrix}.
+\label{eq:phi}
+\end{equation}
+The $(2,2)$ entry carries the secular term $-3\sigma$: only a tangential
+impulse buys displacement growing without bound in lead time, while radial and
+cross-track impulses produce bounded periodic motion of amplitude at most
+$2\dv/n$. That asymmetry is why lead time, not propellant, is the scarce
+resource.
+
+The displacement of satellite $i$ at time $t$, in ECI, is linear in $x$:
+\begin{equation}
+\delta r_i(t) = \Psi_i(t)\,x,
+\qquad
+\Psi_i(t) = R_i(t)\big[\,\cdots\ \Phi(n_i, t-\tau_{i,k})\,\mathbf{1}[\tau_{i,k}\le t]\ \cdots\,\big],
+\end{equation}
+with $R_i(t)$ the RTN-to-ECI rotation. Rotating through each satellite's own
+frame --- rather than approximating the frame difference with a scalar
+alignment term --- is what makes the following correct for crossing geometries;
+Section~\ref{sec:fidelity} quantifies what the approximation costs.
+
+\subsection{B-plane miss sensitivity}
+
+For conjunction $j$ between objects $a,b$ at nominal TCA $t_j$, write
+$d_j = r_b - r_a$, $w_j = v_b - v_a$, and let
+$P_j = I_3 - \hat w_j \hat w_j^{\!\top}$ be the projector onto the encounter
+B-plane. Let $B_j = \Psi_b(t_j) - \Psi_a(t_j)$.
+
+\begin{proposition}[First-order miss distance]
+\label{prop:miss}
+The post-maneuver minimum separation near $t_j$ is
+\begin{equation}
+m_j(x) = \norm{P_j\,(d_j + B_j x)} + O(\norm{\cdot}^2).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Near TCA the relative motion is $d(t) = d_j + B_j x + w_j (t-t_j) + O((t-t_j)^2)$.
+Minimizing the norm over $t$ leaves the residual $\norm{P_j(d_j + B_jx)}$; the
+neglected relative acceleration acts over a time shift that is itself first
+order in the displacement, so its contribution is second order.
+\end{proof}
+
+The projector matters because a displacement component along $w_j$ changes the
+\emph{time} of closest approach, not its \emph{distance}. Omitting it credits a
+burn with separation it does not buy.
+
+The safety requirement $m_j(x) \ge \rho_j$ is reverse-convex. We use the
+standard supporting-hyperplane restriction: for any unit $u$,
+\begin{equation}
+u^{\!\top} P_j (d_j + B_j x) \ \ge\ \rho_j
+\quad\Longrightarrow\quad
+\norm{P_j(d_j + B_j x)} \ \ge\ \rho_j
+\label{eq:restriction}
+\end{equation}
+by Cauchy--Schwarz. The linear constraint is therefore an \emph{inner}
+approximation for \emph{any} $u$ --- a fact we lean on heavily in
+Section~\ref{sec:accel}, because it means no direction supplier, learned or
+otherwise, can make a plan unsafe.
+
+\begin{proposition}[Monotone refinement]
+\label{prop:scp}
+If $x^\star$ solves the program linearized at directions $u$, and
+$u_j' = P_j(d_j + B_jx^\star)/\norm{P_j(d_j+B_jx^\star)}$, then $x^\star$
+remains feasible for the program linearized at $u'$. Hence the optimal cost is
+non-increasing across refinements and, bounded below, converges.
+\end{proposition}
+
+\begin{proof}
+$u_j'^{\!\top}P_j(d_j+B_jx^\star) = \norm{P_j(d_j+B_jx^\star)} \ge \rho_j$ by
+\eqref{eq:restriction} applied at $u$.
+\end{proof}
+
+\section{Induced conjunctions}
+
+\subsection{Latent constraints}
+
+Let $\mathcal{L}$ index \emph{latent} pair/epoch combinations --- pairs with at
+least one maneuverable member that are not currently conjunctions. For each we
+impose $\norm{d_p + B_p x} \ge s_{\min} + \gamma$, restricted as in
+\eqref{eq:restriction}.
+
+The inflation $\gamma$ covers what a first-order model evaluated at a grid
+sample does not see:
+\begin{equation}
+\gamma = \tfrac12 A h^2 + \Lambda h,
+\qquad
+A \le \frac{2\mu G}{r_{\min}^{3}},
+\qquad
+\Lambda = \sqrt{51}\,(D_a + D_b),
+\label{eq:tidal}
+\end{equation}
+where $h$ is the grid step, $G$ the gate, and $D_i$ the per-satellite budget.
+$A$ bounds the \emph{tidal} relative acceleration of a pair already inside the
+gate --- two objects a hundred kilometres apart feel nearly the same gravity,
+and only the residual bends their relative trajectory. $\Lambda$ bounds how
+fast the maneuver-induced displacement itself changes, via the Lipschitz
+constant of $\Phi$.
+
+\begin{remark}
+The alternative --- bounding the change between samples by the relative speed,
+$\tfrac12 v_{\max} h$ with $v_{\max} = \SI{19}{\kilo\meter\per\second}$ ---
+gives \SI{285}{\kilo\meter} at $h = \SI{30}{\second}$, which swamps any
+realistic exclusion radius and makes the constraint set vacuous. Equation
+\eqref{eq:tidal} gives \SI{0.55}{\kilo\meter} at a \SI{1}{\meter\per\second}
+budget and \SI{0.14}{\kilo\meter} at \SI{50}{\milli\meter\per\second}. The
+factor of \num{500} to \num{2000} is the difference between a usable
+formulation and an empty one.
+\end{remark}
+
+\subsection{Reachability and completeness}
+
+\begin{proposition}[Displacement bound]
+\label{prop:reach}
+Let satellite $i$ carry total impulse budget $D_i = \sum_k \norm{\dv_{i,k}}$
+with earliest burn epoch $\tau_i^{\min}$. Then for every admissible plan and
+every $t$,
+\begin{equation}
+\norm{\delta r_i(t)} \;\le\; D_i \max_{\tau \in [\tau_i^{\min},\,t]} \norm{\Phi(n_i, t-\tau)}_2
+\;=:\; \rho_i(t).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Triangle inequality and submultiplicativity of the spectral norm.
+\end{proof}
+
+Evaluating the maximum requires care: $\norm{\Phi(n,\sigma)}_2$ is \emph{not}
+monotone in $\sigma$. Its growth rate is $3 - 4\cos(n\sigma)$, negative
+whenever $\cos(n\sigma) > 3/4$, so the norm dips just after every whole orbit
+of lead. We therefore use the closed-form monotone envelope
+\begin{equation}
+\norm{\Phi(n,\sigma)}_2 \le \norm{\Phi(n,\sigma)}_F \le
+\frac{\sqrt{(3n\sigma+4)^2 + 34}}{n} =: M(n,\sigma),
+\label{eq:envelope}
+\end{equation}
+which follows from $2\sin^2 \le 2$, $8(1-\cos)^2 \le 32$ and
+$|4\sin(n\sigma) - 3n\sigma| \le 4 + 3n\sigma$. $M$ is asymptotic to $3\sigma$
+and over-estimates by at most about $7/n$ seconds.
+
+\begin{proposition}[Candidate-set completeness]
+\label{prop:complete}
+If a pair $(a,b)$ satisfies
+$\norm{d_{ab}(t)} > s_{\min} + \rho_a(t) + \rho_b(t)$ for every $t$ in the
+window, then no admissible plan can bring it within $s_{\min}$. Screening the
+\emph{nominal} catalog with that inflated, time-varying gate therefore
+enumerates every pair any admissible plan could turn into a conjunction.
+\end{proposition}
+
+\begin{proof}
+$\norm{d_{ab}(t) + \delta r_b(t) - \delta r_a(t)} \ge \norm{d_{ab}(t)} -
+\rho_a(t) - \rho_b(t) > s_{\min}$.
+\end{proof}
+
+\begin{remark}
+The gate is linear in the budget, and asymptotically $\rho_i(t) \approx
+3 D_i (t - \tau_i^{\min})$ --- the secular along-track term and nothing else.
+At \SI{1}{\meter\per\second} over one day that is \SI{263}{\kilo\meter} per
+satellite; at the \SI{5}{\centi\meter\per\second} avoidance actually uses, it
+is \SI{13}{\kilo\meter}, comparable to the \SI{17}{\kilo\meter} along-track
+half-width of NASA CARA's operational LEO volume. Budgeting the gate is
+therefore the same act as budgeting the fuel.
+\end{remark}
+
+\section{Structure of the solution}
+
+With mandatory slack $\sigma$ on every safety row --- required, because a
+purely radial or cross-track geometry has bounded achievable response and no
+finite $\dv$ satisfies it --- the program is
+\begin{equation}
+\min_{x,\,s,\,\sigma}\ \ c^{\!\top}x + \lambda \mathbf{1}^{\!\top}s + \mu \mathbf{1}^{\!\top}\sigma
+\quad \text{s.t.} \quad
+\begin{cases}
+u_j^{\!\top}P_j(d_j + B_jx) + s_j \ge \rho_j, & j \in \mathcal{J}\\
+\hat u_p^{\!\top}(d_p + B_px) + \sigma_p \ge f_p, & p \in \mathcal{L}\\
+\mathbf{1}^{\!\top}\sigma \le \varepsilon, & \\
+x \in X, \ s,\sigma \ge 0. &
+\end{cases}
+\label{eq:program}
+\end{equation}
+
+\begin{proposition}[Exact penalty]
+\label{prop:penalty}
+For the linear program $\min\{c^{\!\top}x : Ax \ge b,\ x \in X\}$ with optimal
+dual $y^\star$, every optimal solution of its penalized form has $\sigma = 0$
+whenever the hard problem is feasible and $\lambda > \norm{y^\star}_\infty$.
+\end{proposition}
+
+\begin{proof}
+The dual of the penalized problem is the dual of the hard problem with the
+added box $y \le \lambda\mathbf{1}$. If $\lambda > \norm{y^\star}_\infty$ then
+$y^\star$ is interior to that box, so the dual --- and hence the primal ---
+optimum is unchanged; and any $\sigma>0$ costs $\lambda$ per unit while buying
+at most $\norm{y^\star}_\infty < \lambda$ of relief.
+\end{proof}
+
+The consequence for this domain is the point: \emph{the apparent
+$\dv$-versus-risk tradeoff observed under a soft penalty is an artifact of
+choosing $\lambda \le \norm{y^\star}_\infty$}, not a property of the physics.
+Above the computable threshold the formulations coincide.
+
+\begin{proposition}[Frontier structure]
+\label{prop:frontier}
+$V^\star(\varepsilon)$, the optimal cost of \eqref{eq:program} as a function of
+the induced-risk budget, is convex, piecewise linear and non-increasing in
+$\varepsilon$, with finitely many breakpoints, and its left derivative equals
+minus the optimal multiplier of the budget row.
+\end{proposition}
+
+\begin{proof}
+Standard right-hand-side sensitivity: $V^\star$ is the support function of the
+dual feasible set, a pointwise maximum of affine functions of $\varepsilon$,
+over a polyhedron with finitely many vertices.
+\end{proof}
+
+The domain consequence is that the $\dv$-versus-induced-risk Pareto frontier is
+\emph{exactly} representable by finitely many breakpoints and computable by
+parametric LP, rather than sampled as a point cloud --- and that convexity is a
+checkable invariant rather than an impression.
+
+Finally, when no zero-induced plan exists, a deletion filter over the safety
+rows returns a minimal infeasible subsystem, which renders in English as
+``resolving $A$ and $B$ together necessarily brings $C$ within $s_{\min}$.''
+Farkas' lemma is the basis~\cite{schrijver1986}; the contribution is the
+mapping back to named conjunctions.
+
+\section{Certified acceleration}
+\label{sec:accel}
+
+Solve \eqref{eq:program} with a \emph{subset} of $\mathcal{L}$, evaluate every
+omitted row at the solution, add back any that is violated, and repeat.
+
+\begin{proposition}[Lazy exactness]
+\label{prop:lazy}
+At termination the point is feasible for the full program, and its cost is a
+lower bound on the full optimum because every intermediate program is a
+relaxation. Hence the returned solution is optimal for the full problem
+whatever subset was guessed.
+\end{proposition}
+
+\begin{remark}[A trap]
+The omitted rows must be checked with the \emph{linearized} residual
+$u^{\!\top}(d + Bx) - f$, not the physical separation $\norm{d+Bx} - f$. By
+\eqref{eq:restriction} the linear form is never larger, so a point can satisfy
+the true separation while violating the row the program enforces; checking the
+norm terminates the loop early on a solution the full program would have
+rejected. Using the physical residual broke exactness on 6 of 27 scenarios in
+our implementation before the distinction was made explicit.
+\end{remark}
+
+Proposition~\ref{prop:lazy} is what makes a learned prior safe to use: the
+prediction chooses only which rows to try first, and the loop certifies the
+answer. We train a physics-informed graph network (\num{892}k parameters) over
+the conjunction graph to predict the active set and dual prices, with a loss
+that pushes the predicted allocation through the stored sensitivity tensors to
+evaluate real constraint residuals. The result is reported in
+Section~\ref{sec:results-accel}, including where it fails.
+
+\section{Experiments}
+\label{sec:experiments}
+
+All scenarios are deterministic and seeded; every probability inherits
+TLE-grade covariance and is labelled as such. Ground truth throughout is SGP4:
+a plan is applied to the catalog, both catalogs are propagated, and the
+realized geometry is measured.
+
+\subsection{Model fidelity}
+\label{sec:fidelity}
+
+Impulses are applied to SGP4 objects by a first-order Gauss variational update
+followed by a mean-element refit against the exact post-burn state. Measured
+over 160 samples (40 mixed-axis impulses spanning
+\SIrange{1}{500}{\milli\meter\per\second}, each at four lead times):
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Impulse magnitude & $n$ & refit converged & median relative error \\
+\midrule
+$\ge$ \SI{20}{\milli\meter\per\second} & 88 & \SI{100}{\percent} & \SIrange{0.22}{0.24}{\percent} \\
+$<$ \SI{20}{\milli\meter\per\second} & 72 & \SI{17}{\percent} & \SI{11.6}{\percent} \\
+all & 160 & \SI{62}{\percent} & \SI{0.28}{\percent} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Per-axis, for converged fits: transverse \SI{0.20}{\percent} median
+(\SI{0.42}{\percent} max), radial \SI{0.43}{\percent} (\SI{4.2}{\percent}),
+normal \SI{2.6}{\percent} (\SI{7.6}{\percent}). Cross-track error grows with
+lead time --- differential $J_2$ nodal regression from the inclination change,
+which CW does not model --- which is why the optimizer prices cross-track burns
+at five times along-track. The absolute disagreement is about ten metres
+against an exclusion radius of \SI{2}{\kilo\meter}.
+
+\subsection{The scalar sensitivity model fails on intra-fleet geometry}
+
+A scalar along-track model estimates the secondary's contribution as
+$(\hat d \cdot \hat t_a)(\hat t_a \cdot \hat t_b)$ where the correct
+coefficient is $\hat d \cdot \hat t_b$. Those agree only when the orbit planes
+nearly coincide. Measured on cross-plane intra-fleet conjunctions where the
+\emph{secondary} maneuvers (24 cases, \SI{106}{\degree} plane separation,
+\SI{12.1}{\kilo\meter\per\second} relative speed):
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+$\dv$ & true change & B-plane model & scalar model \\
+\midrule
+\SI{10}{\milli\meter\per\second} & \SI{-0.1450}{\kilo\meter} & \SI{-0.1473}{\kilo\meter} & \SI{+0.0424}{\kilo\meter} \\
+\SI{50}{\milli\meter\per\second} & \SI{-0.6660}{\kilo\meter} & \SI{-0.7317}{\kilo\meter} & \SI{+0.2119}{\kilo\meter} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The scalar model has the \emph{wrong sign}: it predicts the burn increases
+separation when it decreases it, with a median error of \SI{128}{\percent}
+against \SI{1.0}{\percent} for the B-plane form. Co-planar pairs in the same
+experiment agree to \SI{0.01}{\percent}, exactly as predicted. For coordinated
+multi-satellite maneuvering this is a correctness fix, not a refinement.
+
+\subsection{The safety premium}
+
+\input{results-premium}
+
+\subsection{The induced-risk frontier}
+
+Traced at a fixed linearization with resolve shortfall pinned, over six
+\texttt{induced-cascade} scenarios, Proposition~\ref{prop:frontier} holds to
+machine precision: every curve non-increasing and convex, convexity residual
+$\le \num{9e-19}$, slope--dual agreement $\le \num{1.5e-13}$, with breakpoints
+recovered where the dual steps down. Premiums at $\varepsilon=0$ relative to
+the unconstrained end ranged from \SI{0}{\percent} (spacing
+\SI{10.6}{\kilo\meter}) to \SI{5.8}{\percent} (spacing \SI{6.9}{\kilo\meter}).
+
+\subsection{Certified acceleration, and a negative result}
+\label{sec:results-accel}
+
+\input{results-accel}
+
+\section{Limitations}
+
+Linearized relative motion, with second-order error scaling as
+$\norm{\text{displacement}}^2 / (2\,m)$, reported with every claim. Low relative
+velocity, where the TCA shift grows as $1/\norm{w}$ and the neglected relative
+acceleration dominates: these events are flagged and reported separately.
+Cross-track burns beyond about two orbits of lead, where differential $J_2$
+reaches \SI{7.6}{\percent}. And every probability inherits TLE-grade
+covariance, so no number here is operational.
+
+The scenario families are synthetic and deterministic by design --- they exist
+to produce known graph structure --- with one family replayed from real
+catalog elements. A replication on operator-grade ephemerides would be the
+natural next step, and would change the covariance story completely.
+
+\section{Conclusion}
+
+Induced conjunctions can be constrained inside a fleet maneuver optimizer
+rather than chased by an outer loop, and the constraint set can be certified
+complete under a $\dv$ budget. Doing so costs a median of a few percent extra
+$\dv$ when the fleet is loosely packed, and becomes infeasible when it is
+tightly packed --- a transition that is a property of the geometry, not of the
+solver, and one that a soft-penalty formulation hides. The tradeoff that
+remains, once the penalty is set above its exact threshold, is convex,
+piecewise linear, and exactly computable.
+
+\begin{thebibliography}{99}
+
+\bibitem{armellin2021} R.~Armellin.
+\newblock Collision avoidance maneuver optimization with a multiple-impulse convex formulation.
+\newblock \emph{Acta Astronautica}, 186, 2021. arXiv:2101.07403.
+
+\bibitem{pavanello2024} Z.~Pavanello, L.~Pirovano, R.~Armellin, A.~De~Vittori, P.~Di~Lizia.
+\newblock Collision avoidance maneuvers optimization in the presence of multiple encounters.
+\newblock arXiv:2406.03654, 2024.
+
+\bibitem{chen2024} Y.~Chen et al.
+\newblock Instability of self-driving satellite mega-constellation.
+\newblock arXiv:2406.06068, 2024.
+
+\bibitem{nasa2023} NASA Office of the Chief Engineer.
+\newblock NASA spacecraft conjunction assessment and collision avoidance best practices handbook.
+\newblock NASA/SP-20230002470 Rev.~1, 2023.
+
+\bibitem{mueller2009} J.~B.~Mueller.
+\newblock Onboard planning of collision avoidance maneuvers using robust optimization.
+\newblock AIAA 2009-2051.
+
+\bibitem{mao2017} Y.~Mao, M.~Szmuk, B.~A\c{c}{\i}kme\c{s}e.
+\newblock Successive convexification of non-convex optimal control problems.
+\newblock \emph{IFAC-PapersOnLine}, 50(1):4063--4069, 2017.
+
+\bibitem{rivero2025} A.~S.~Rivero, R.~Vazquez, K.~Merz.
+\newblock Advancing geometric conjunction filters to handle satellite manoeuvres.
+\newblock 9th European Conference on Space Debris (SDC9), 2025.
+
+\bibitem{hejduk2017} M.~D.~Hejduk, D.~E.~Pachura.
+\newblock Conjunction assessment screening volume sizing.
+\newblock NASA NTRS 20170007928.
+
+\bibitem{klinkrad2005} H.~Klinkrad, J.~R.~Alarcon, N.~Sanchez.
+\newblock Collision avoidance for operational ESA satellites.
+\newblock ESA SP-587, 4th European Conference on Space Debris, 2005.
+
+\bibitem{kuhl2025} W.~Kuhl, J.~Wang, D.~Eddy, M.~Kochenderfer.
+\newblock Markov decision processes for satellite maneuver planning and collision avoidance.
+\newblock arXiv:2501.02667, 2025.
+
+\bibitem{bertsimas2019} D.~Bertsimas, B.~Stellato.
+\newblock Online mixed-integer optimization in milliseconds.
+\newblock arXiv:1907.02206, 2019.
+
+\bibitem{cauligi2020} A.~Cauligi, P.~Culbertson, E.~Schmerling, M.~Pavone.
+\newblock Learning mixed-integer convex optimization strategies for robot planning and control.
+\newblock arXiv:2004.03736, 2020.
+
+\bibitem{gasse2019} M.~Gasse, D.~Ch\'etalat, N.~Ferroni, L.~Charlin, A.~Lodi.
+\newblock Exact combinatorial optimization with graph convolutional neural networks.
+\newblock NeurIPS, 2019. arXiv:1906.01629.
+
+\bibitem{uriot2020} T.~Uriot et al.
+\newblock Spacecraft collision avoidance challenge: design and results of a machine learning competition.
+\newblock arXiv:2008.03069, 2020.
+
+\bibitem{bertsekas1999} D.~P.~Bertsekas.
+\newblock \emph{Nonlinear Programming}. Athena Scientific, 2nd edition, 1999.
+
+\bibitem{schrijver1986} A.~Schrijver.
+\newblock \emph{Theory of Linear and Integer Programming}. Wiley, 1986.
+
+\bibitem{alfano2005} S.~Alfano.
+\newblock A numerical implementation of spherical object collision probability.
+\newblock \emph{Journal of the Astronautical Sciences}, 53(1), 2005.
+
+\end{thebibliography}
+
+\end{document}

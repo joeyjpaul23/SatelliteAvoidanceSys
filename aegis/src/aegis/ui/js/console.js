@@ -1,4 +1,4 @@
-import { createGlobe } from "./scene.js?v=15";
+import { createGlobe } from "./scene.js?v=17";
 
 const BAND_CLASS = {
   CLEAR: "c-ok",
@@ -69,6 +69,17 @@ function fmtNum(value, digits) {
   return Number(value).toFixed(digits);
 }
 
+function fmtWindow(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s)) return "—";
+  if (s >= 86400) {
+    const days = s / 86400;
+    return Number.isInteger(days) ? `${days} d` : `${days.toFixed(1)} d`;
+  }
+  if (s >= 3600) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s)} s`;
+}
+
 function tPlus(seconds) {
   const sign = seconds < 0 ? "-" : "+";
   const abs = Math.abs(Math.round(seconds));
@@ -116,13 +127,21 @@ function renderStatus() {
     els.statusFallback.classList.add("hidden");
   }
   els.statusCov.textContent = scene.covariance_source || "SYNTHETIC_TLE";
-  els.statusN.textContent = `N=${scene.objects?.length ?? 0}`;
+  const risk = scene.objects?.length ?? 0;
+  const screened = scene.screened_objects;
+  els.statusN.textContent =
+    screened == null ? `RISK ${risk}` : `RISK ${risk} / ${screened}`;
 }
 
 function renderSource() {
   if (!scene) return;
-  const group = /group=([^\s]+)/i.exec(scene.query || "")?.[1] || "STARLINK";
-  els.srcPath.textContent = `${scene.source || "CELESTRAK"} / ${String(group).toUpperCase()}`;
+  const query = String(scene.query || "");
+  const path = /starlink/i.test(query) && /debris|name=deb/i.test(query)
+    ? "STARLINK + DEBRIS"
+    : /starlink/i.test(query)
+      ? "STARLINK"
+      : query || "CELESTRAK";
+  els.srcPath.textContent = `${scene.source || "CELESTRAK"} / ${path}`;
   els.srcFetch.textContent = fmtIso(scene.fetched_at);
   els.srcQuery.textContent = scene.query || "—";
   els.srcEpoch.textContent = fmtIso(scene.epoch);
@@ -135,7 +154,7 @@ function renderCatalog() {
   const n = scene.max_objects || scene.objects?.length || 0;
   els.objectSlider.value = String(n);
   els.objectCountLabel.textContent = `${n} / 200`;
-  els.catWindow.textContent = `${Math.round(scene.duration_s)} s`;
+  els.catWindow.textContent = fmtWindow(scene.duration_s);
   els.catStep.textContent = `${Math.round(scene.step_s)} s`;
   const box = scene.box_km || [2, 44, 51];
   els.catBox.textContent = `${box[0]} × ${box[1]} × ${box[2]} km`;
@@ -172,10 +191,19 @@ function altitudeKm(obj) {
 function renderObjects() {
   if (!els.objectsBody) return;
   els.objectsBody.innerHTML = "";
-  for (const obj of scene?.objects || []) {
+  const objects = scene?.objects || [];
+  if (!objects.length) {
+    const hint = document.createElement("p");
+    hint.className = "pick-hint";
+    hint.textContent = "No at-risk objects. Slider still sets how many are screened.";
+    els.objectsBody.appendChild(hint);
+    return;
+  }
+  for (const obj of objects) {
     const row = document.createElement("div");
     row.className = `object-row${obj.id === selected.objectId ? " sel" : ""}`;
-    row.innerHTML = `<span class="name">${obj.name || obj.id}</span><span class="${BAND_CLASS[obj.color_band] || ""}">${BAND_SHORT[obj.color_band] || obj.color_band}</span>`;
+    const label = obj.role === "debris" ? `DEB ${obj.name || obj.id}` : (obj.name || obj.id);
+    row.innerHTML = `<span class="name">${label}</span><span class="${BAND_CLASS[obj.color_band] || ""}">${BAND_SHORT[obj.color_band] || obj.color_band}</span>`;
     row.addEventListener("click", () => select({ objectId: obj.id, conjunctionId: null }));
     els.objectsBody.appendChild(row);
     if (obj.id === selected.objectId) row.scrollIntoView({ block: "nearest" });
@@ -185,6 +213,12 @@ function renderObjects() {
 function renderEvents() {
   const rows = scene?.conjunctions || [];
   els.eventsBody.innerHTML = "";
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="4" class="pick-hint">No MONITOR+ events in this window.</td>`;
+    els.eventsBody.appendChild(tr);
+    return;
+  }
   for (const row of rows) {
     const tr = document.createElement("tr");
     const band = bandOf(row);
@@ -265,6 +299,8 @@ function renderSelected() {
   const eventCount = (obj.conjunction_ids || []).length;
   setKv(els.selectedKv, [
     ["NAME", obj.name || obj.id],
+    ["TYPE", obj.object_type || obj.role || "—"],
+    ["ROLE", obj.role === "debris" ? "DEBRIS" : "FLEET"],
     ["NORAD", obj.id],
     ["ALT", alt === null ? "—" : `${fmtNum(alt, 1)} km`],
     ["BAND", obj.color_band],
@@ -324,18 +360,23 @@ function applyScene(payload) {
   renderSource();
   renderCatalog();
   renderPlan();
+  renderScrub();
+  const first = (payload.conjunctions || [])[0];
+  if (first) {
+    select({ objectId: first.primary_id, conjunctionId: first.id });
+    return;
+  }
+  selected = { objectId: null, conjunctionId: null };
+  globe.setSelection(selected);
   renderEvents();
   renderObjects();
   renderSelected();
-  renderScrub();
-  globe.setTimeIndex(Number(els.timeSlider.value) || 0);
+  globe.setTimeIndex(0);
 }
 
 async function loadScene(maxObjects) {
   const params = new URLSearchParams({
     max_objects: String(maxObjects),
-    duration_s: "5400",
-    step_s: "60",
     live: "true",
   });
   els.statusSource.textContent = "LOADING";

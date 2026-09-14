@@ -1,0 +1,302 @@
+Eighty deterministic \texttt{induced-cascade} scenarios: one maneuverable
+satellite forced to act by an external hazard, with in-plane fleet-mates close
+enough that the avoidance displacement can reach them. Neighbour spacing is
+sampled per seed over \SIrange{3}{15}{\kilo\meter}, so the seed sweep is also a
+sweep over how tightly the fleet is packed. The exclusion radius is derived
+from the assessed covariances rather than chosen --- the separation at which
+$P_c$ reaches the watch threshold, times a \num{1.5} margin, median
+\SI{3.137}{\kilo\meter}.
+
+Induced conjunctions are counted twice. \emph{Predicted} is the optimizer's own
+constraint residual; \emph{measured} is a full SGP4 re-screen of the maneuvered
+catalog, counting pairs that reach WATCH and were not there before. Only the
+second is evidence.
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+planner & median $\dv$ & induced & \textbf{induced} & scenarios & certified \\
+        & (\si{\milli\meter\per\second}) & predicted & \textbf{measured} & affected & safe \\
+\midrule
+\texttt{no-maneuver}     &    0.0 &   0 & \textbf{0}   &  0/80 & --- \\
+\texttt{legacy-lp}       & 1094.1 & 425 & \textbf{176} & 71/80 & \SI{0.0}{\percent} \\
+\texttt{greedy-pairwise} &  899.2 & 229 & \textbf{97}  & 64/80 & \SI{0.0}{\percent} \\
+\texttt{fuel-only}       &  715.7 & 200 & \textbf{71}  & 55/80 & \SI{100}{\percent} \\
+\textbf{\texttt{fleet-safe}} & 867.7 & \textbf{0} & \textbf{0} & \textbf{0/80} & \SI{95.0}{\percent} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The constraint drives its own predicted count from 200 to \textbf{zero}, and a
+full SGP4 re-screen of the maneuvered catalog finds \textbf{zero} induced
+conjunctions in every one of the eighty scenarios --- against 71 for the same
+optimizer without the induced-conjunction rows, and 176 for the legacy
+scalar-model planner. None of the uncoordinated planners passes certification,
+and the one that spends the most fuel induces the most.
+
+\paragraph{Across all nine families.} The table above isolates the family the
+question is about. Repeating the sweep over all nine generator families --- 144
+scenarios, \SI{2}{\meter\per\second} budget --- gives:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+planner & median $\dv$ & induced & \textbf{induced} & scenarios \\
+        & (\si{\milli\meter\per\second}) & predicted & \textbf{measured} & affected \\
+\midrule
+\texttt{no-maneuver}     &   0.0 &   0 & \textbf{0}  &   0/144 \\
+\texttt{legacy-lp}       &  77.9 & 158 & \textbf{37} &  16/144 \\
+\texttt{greedy-pairwise} &  12.5 &  73 & \textbf{18} &  13/144 \\
+\texttt{fuel-only}       &  33.1 &  60 & \textbf{13} &  10/144 \\
+\textbf{\texttt{lexicographic}} & 510.6 & 6 & \textbf{0} & \textbf{0/144} \\
+\textbf{\texttt{fleet-safe}}    & 610.5 & 6 & \textbf{0} & \textbf{0/144} \\
+\textbf{\texttt{milp-ops}}      & 513.1 & 6 & \textbf{0} & \textbf{0/144} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Zero for every formulation carrying the induced-conjunction rows, across every
+family --- not only the one the method was built around. The premium over all
+families is defined on 43 of 144 scenarios, median \SI{0.00}{\percent}, p90
+\SI{5.30}{\percent}, max \SI{15.97}{\percent}, \textbf{zero negative},
+\SI{22.2}{\percent} with no zero-induced plan. The median is zero because most
+families have no binding induced-conjunction row at all, which is the correct
+answer for them; the \texttt{induced-cascade} distribution below is the one
+carrying information.
+
+Reaching zero required one structural correction, and it is worth stating
+because the failure mode is not obvious. Placing rows at local minima of the
+\emph{nominal} separation is not sufficient: for a co-orbital pair the nominal
+separation is flat --- measured at \SI{9.345}{\kilo\meter} across every sampled
+epoch --- so nominal minima are arbitrary, and the maneuver's own secular
+along-track drift decides where the perturbed minimum falls. Plans therefore
+satisfied every enumerated row, with a first-order model accurate to
+\textbf{six metres}, while the true minimum sat two kilometres lower at an
+epoch no row covered. Because evaluating the perturbed separation is cheap once
+$x$ is known, the epochs that matter are discovered from the solution --- solve,
+locate each pair's perturbed minimum, add one row, re-solve --- rather than
+guessed beforehand. The cost is \SI{2.9}{\percent} more $\dv$ and no change to
+the premium distribution.
+
+The safety premium, measured at a fixed linearization with latent slack pinned
+to zero and resolve slack capped at the fuel-only solution --- the construction
+under which it is provably a lower bound:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+statistic & value \\
+\midrule
+defined & 70/80 \\
+no zero-induced plan exists & 10/80 (\SI{12.5}{\percent}) \\
+median & \textbf{\SI{4.41}{\percent}} \\
+p90 & \textbf{\SI{16.00}{\percent}} \\
+p99 & \SI{42.62}{\percent} \\
+worst & \SI{54.69}{\percent} \\
+zero-premium fraction & \SI{20}{\percent} \\
+\textbf{negative (construction forbids it)} & \textbf{0} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Stratified by how tightly the fleet is packed:
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+neighbour spacing & $n$ & median & p90 & max & infeasible \\
+\midrule
+\SIrange{3}{5}{\kilo\meter}   &  9 & \textbf{\SI{29.67}{\percent}} & \SI{35.70}{\percent} & \SI{37.20}{\percent} & 6 \\
+\SIrange{5}{7}{\kilo\meter}   & 12 & \SI{15.42}{\percent} & \SI{18.64}{\percent} & \SI{54.69}{\percent} & 0 \\
+\SIrange{7}{9}{\kilo\meter}   & 15 & \SI{10.00}{\percent} & \SI{12.69}{\percent} & \SI{13.22}{\percent} & 0 \\
+\SIrange{9}{12}{\kilo\meter}  & 21 & \SI{3.28}{\percent}  & \SI{6.10}{\percent}  & \SI{6.95}{\percent}  & 0 \\
+\SIrange{12}{15}{\kilo\meter} & 23 & \textbf{\SI{0.00}{\percent}} & \SI{2.25}{\percent} & \SI{11.30}{\percent} & 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Monotone across a factor of five in spacing and thirty in premium, with the
+transition to infeasibility arriving below about \SI{5}{\kilo\meter}. The
+median sits inside the \SIrange{1.1}{3.8}{\percent} range Pavanello et
+al.~\cite{pavanello2024} report for a single spacecraft buying stronger
+probability margins across five, seven and ten simultaneous encounters --- a
+different formulation measuring a different thing, so corroboration rather than
+confirmation, but the closest published quantity.
+
+\paragraph{A sampled grid cannot locate a fast close approach, and the tidal
+inflation assumes it can.} The result above is stated over a sweep that varies
+the $\dv$ budget as well as the geometry, and that is deliberate: an earlier
+version of it, swept at a single budget, was wrong. An independent verifier
+given read-only access reproduced zero at \SI{2}{\meter\per\second} and then
+broke it at \SI{0.5}{} and \SI{1}{\meter\per\second}, the latter being the
+implementation's own default.
+
+The failing pair crosses at \SI{7.24}{\kilo\meter\per\second} and so sweeps
+\SI{217}{\kilo\meter} per \SI{30}{\second} step. Its true minimum,
+\SI{0.1429}{\kilo\meter}, falls between two samples reading \SI{76.3}{} and
+\SI{140.8}{\kilo\meter}: the sampled separation is monotone increasing straight
+through a minimum three orders of magnitude below either neighbour. No
+predicate on sampled separations --- $\arg\min$, a local-minimum scan, a
+decrease-then-increase test --- can detect it. The first-order model was not
+at fault; it agreed with SGP4 to a median of \SI{2.2}{\meter} over the window.
+
+Nor does \eqref{eq:tidal} cover it, and the reason is worth isolating. The term
+$\tfrac12 A h^2$ bounds the \emph{curvature} of the relative trajectory, which
+is the governing quantity only when the relative velocity at the minimum is
+near zero --- a co-orbital pair, which is precisely the geometry the
+formulation was developed against. For a crossing, the governing quantity is
+the linear term $\tfrac12 v_{\text{rel}} h$, the very term \eqref{eq:tidal} was
+introduced to avoid, and at \SI{7.24}{\kilo\meter\per\second} it is
+\SI{108}{\kilo\meter} against a \SI{2.88}{\kilo\meter} floor. Measured across
+families, $\tfrac12 v_{\text{rel}} h$ exceeds the floor by a factor of
+\num{20} to \num{53} everywhere --- so the grid was certifying nothing, in any
+family. Zero had been \emph{measured}, not guaranteed.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+family & worst $\tfrac12 v_{\text{rel}} h$ & floor & ratio \\
+\midrule
+\texttt{isolated-pair}   & \SI{73.6}{\kilo\meter}  & \SI{3.68}{\kilo\meter} & $20\times$ \\
+\texttt{chain}           & \SI{111.2}{\kilo\meter} & \SI{2.88}{\kilo\meter} & $39\times$ \\
+\texttt{induced-cascade} & \SI{142.5}{\kilo\meter} & \SI{3.45}{\kilo\meter} & $41\times$ \\
+\texttt{star}            & \SI{185.2}{\kilo\meter} & \SI{3.52}{\kilo\meter} & $\mathbf{53\times}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The range rate repairs it. $\dot r = (\delta \cdot \dot\delta)/\lVert\delta\rVert$
+changes sign at every minimum however deep, so brackets are found from a sign
+change in $\dot r$ rather than by comparing separations, and each bracket is
+refined by cubic Hermite interpolation of the relative position from its
+endpoints and their derivatives. This requires the exact derivative of $\Phi$,
+which is available in closed form, and makes the search independent of how far
+the pair moves within one step. Root-finding on the range rate is of course
+standard practice in conjunction \emph{screening}; what seems not to be
+appreciated is that a maneuver-planning constraint set built on sampled
+separations inherits none of that rigour, and that the tidal-inflation argument
+routinely used to justify a coarse planning grid is conditional on a
+relative-velocity assumption that is not usually stated, let alone checked.
+
+A second verifier, given the strengthened claim and told to find a new axis of
+attack, swept \num{560} configurations --- budgets from \SIrange{50}{10000}{\milli\meter\per\second},
+seeds to \num{60}, burn-slot counts, refinement iterations, a one-axis control
+model, the polyhedral cost model, two probability thresholds --- and broke it on
+exactly one: a \SI{120}{\second} enumeration step. The search had not failed;
+the pair was never offered to it. Candidate pairs were derived from the rows the
+enumeration placed, and admission tested $\lVert d \rVert \le G$ \emph{at
+samples}, so a pair whose whole approach falls between two samples has no sample
+inside the gate, receives no row, and is never a candidate.
+
+This locates where $\tfrac12 v_{\text{rel}} h$ belongs, and the placement is the
+result. On the constraint \emph{floor} it is vacuous --- \SI{108}{\kilo\meter}
+against a \SI{2.9}{\kilo\meter} exclusion radius is an empty feasible set, which
+is what motivated \eqref{eq:tidal}. On the \emph{gate} it is nearly free:
+widening admission admits a few more candidate pairs, costing enumeration time
+and nothing else, since a pair that turns out not to bind makes no plan worse.
+Admission therefore tests $\lVert d \rVert \le G + \tfrac12 v_{\text{rel}} h$
+with $v_{\text{rel}}$ taken per pair rather than as a catalog-wide maximum, and
+candidate membership is read from what the gate admitted rather than from what
+received a row. The two are different questions, and conflating them is what
+allowed a coarse grid to discard a \SI{7.2}{\kilo\meter\per\second} crossing
+outright.
+
+Across \num{900} plannable configurations --- nine families, sixteen seeds,
+four budgets, three planners --- this takes the measured induced count from
+\textbf{6} to \textbf{0}, and takes the number of those failures that reported
+a \emph{safe} certificate from \textbf{6 of 6} to none. \num{593} of \num{899}
+plans change; the median $\dv$ change is \SI{+0.000}{\percent} and the p90 is
+\SI{+16.2}{\percent}, so the cost falls entirely on the cases that were wrong.
+
+\paragraph{The enumeration step is a correctness parameter.} Sweeping it as a
+third axis --- \num{3066} non-vacuous checks over five families, sixteen seeds,
+four budgets, three steps and three planners, plus \num{366} more varying burn
+slots, refinement iterations, control axes, cost model, probability threshold
+and risk level --- locates the boundary:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+enumeration step & measured induced & of which certified ``safe'' \\
+\midrule
+\textbf{\SI{30}{\second} (default)} & \textbf{0 / 900} & --- \\
+\SI{60}{\second}  &  4 / 900 & 2 \\
+\SI{120}{\second} & 24 / 900 & 17 \\
+all other axes, at \SI{30}{\second} & \textbf{0 / 366} & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Coarsening the step does not merely place fewer rows; it changes which
+approaches are visible at all, since admission and placement both begin from
+sampled separations. The other six parameters swept move the result not at all.
+We report the guarantee as measured at \SI{30}{\second} and demonstrably
+degrading above it, and the implementation flags a coarser grid as unvalidated
+rather than letting it pass for the validated one. Three successive versions of
+this result were each refuted on an axis the preceding sweep had not varied,
+and all three root causes share one shape: a continuous quantity decided from
+samples of it. For slow relative motion that is sound, which is why the
+co-orbital geometry the formulation was developed against exposed none of them.
+
+\paragraph{A pinned attainment level does not survive constraint generation.}
+Lazy epoch generation interacts badly with one natural formulation, and the
+interaction is worth stating because it is invisible until both are present.
+A lexicographic safety-then-fuel planner solves twice: stage one prices slack
+far above any achievable $\dv$ and reads off the total shortfall the geometry
+allows; stage two pins that level and minimizes $\dv$ underneath it. With rows
+generated lazily, stage one's level is measured against the \emph{enumerated}
+rows. Stage two's refinement then discovers epochs those rows missed, adds a
+row at each, and the added shortfall pushes the total above the pinned
+level --- so stage two returns \texttt{infeasible} and the planner falls back
+to the unrefined plan, which violates the very rows it just found. Across all
+nine families this left exactly one SGP4-measured induced conjunction, in a
+scenario where the linear model and SGP4 agreed to \SI{1.2}{\meter}: the model
+was never wrong, the plan was simply never constrained at that epoch.
+With stage one closed first, \texttt{lexicographic} reaches zero across all
+144 scenarios, for \SI{41}{\percent} less $\dv$ than
+\texttt{fleet-safe} --- it is entitled to stop at the best attainable safety
+rather than insist on a feasible point.
+\texttt{fleet-safe}, which pins nothing, absorbs the new rows and re-solves.
+The fix is to close the epoch set on stage one before reading the level off it.
+The general statement: \emph{an attainment level measured on one relaxation is
+not transferable to a tighter one}, and with generated rows the final set is
+known only after generation closes.
+
+A related defect surfaced with it. The lazy routine grew the row set
+internally but returned only the solution, so callers certified against the
+originally enumerated rows --- and duly reported a plan
+\emph{linearized-safe} while it violated a row the refinement itself had
+added. The routine now returns the closed set. No plan changes; what the
+certificate is entitled to claim does.
+
+\paragraph{A hypothesis that did not survive, and its replacement.} We first
+proposed a spectral predictor for the premium: the \emph{coupling number},
+$\operatorname{cond}(BB^{\!\top})$ of the row-normalized projected
+sensitivities, on the reasoning that ill-conditioning means several
+conjunctions demand nearly collinear displacements. Its rank correlation with
+the measured premium is \textbf{\num{0.074}} --- nothing, and on the
+\texttt{induced-cascade} family it is constant.
+
+What does predict it is the \emph{penetration index}: the violation the
+\emph{fuel-optimal} plan commits on its worst induced-conjunction row,
+normalized by the most any admissible plan could move that row,
+\begin{equation}
+\varrho \;=\; \max_p
+  \frac{\big(f_p - \hat u_p^{\!\top}(d_p + B_p x_{\text{fuel}})\big)_+}
+       {\sum_i D_i \,\lVert B_p \text{ restricted to satellite } i\rVert_\infty}.
+\end{equation}
+It is dimensionless, and reads as \emph{what fraction of the fleet's reach is
+already spoken for by the cheapest plan's worst induced conjunction}. Measured
+over 70 scenarios: Spearman \textbf{\num{0.989}}, univariate $R^2$ \num{0.866},
+against \num{-0.855} for in-plane neighbour spacing and \num{0.462} for the
+conflict dimension. A bake-off of thirteen further hand-constructed scalars,
+and a random forest on sixty-six pre-screening features, found nothing better.
+
+The sharper property is exact rather than statistical: $\varrho = 0$ \emph{if
+and only if} the premium is zero, on \textbf{70 of 70} scenarios here and 71 of
+71 in an independent run. If the fuel-optimal plan violates no
+induced-conjunction row, coordination is free. We deliberately do not claim the
+fitted slope as a calibrated magnitude --- it came out at \num{2.72} on one
+dataset and \num{5.73} on another with a different budget, because it absorbs
+the scenario's own $\dv$ scale. The index ranks, and it decides whether a
+premium exists at all.

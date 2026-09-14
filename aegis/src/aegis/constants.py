@@ -230,5 +230,27 @@ CELESTRAK_USER_AGENT = "AEGIS-ConjunctionAssessment/1.0 (+research; contact via 
 #: Seconds in a day, for mean-motion conversions.
 SECONDS_PER_DAY = 86400.0
 
+#: Default console / ops-catalog screening horizon. 19 SDS screens LEO
+#: 7 days out; operators decide on burns inside ~3 days. Three days is
+#: long enough to catch debris conjunctions and short enough that TLE
+#: along-track error is not yet fully diluted.
+SCREENING_HORIZON_S = 3.0 * SECONDS_PER_DAY
+
+#: Console globe track sampling, seconds. Screening still uses
+#: ``CONSOLE_STEP_S``; this only thins the JSON tracks over a multi-day
+#: window so the payload stays browser-sized.
+CONSOLE_TRACK_STEP_S = 300.0
+
+#: Console screening step, seconds. Coarser than ``SCREENING_STEP_S``
+#: because the no-miss gate remains conservative at 19 km/s.
+CONSOLE_STEP_S = 60.0
+
+#: CelesTrak GP ``GROUP`` for the test fleet.
+CELESTRAK_FLEET_GROUP = "starlink"
+
+#: CelesTrak GP ``NAME`` query for catalogued debris. There is no
+#: ``GROUP=debris``; ``NAME=DEB`` is the public debris dump.
+CELESTRAK_DEBRIS_NAME = "DEB"
+
 #: Convert TLE mean motion (revolutions per day) to radians per second.
 REV_PER_DAY_TO_RAD_PER_S = 2.0 * 3.141592653589793 / SECONDS_PER_DAY

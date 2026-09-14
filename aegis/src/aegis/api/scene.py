@@ -1,6 +1,8 @@
 """Build the console scene payload from the existing pipeline.
 
-CelesTrak when live fetch works; committed Starlink slice otherwise.
+CelesTrak Starlink plus overlapping debris when live fetch works;
+committed slices otherwise. The globe and event list only include
+MONITOR / WATCH / ACT — CLEAR tracks are omitted.
 """
 
 from __future__ import annotations
@@ -11,15 +13,21 @@ from typing import Any
 
 import numpy as np
 
-from ..constants import LOW_RELATIVE_VELOCITY_KM_S, SCREENING_BOX_STARLINK_KM
+from ..constants import (
+    CONSOLE_TRACK_STEP_S,
+    LOW_RELATIVE_VELOCITY_KM_S,
+    SCREENING_BOX_STARLINK_KM,
+    SCREENING_HORIZON_S,
+)
 from ..core.conjunction import RiskLevel
 from ..core.state import CovarianceSource
-from ..core.timebase import ensure_utc, seconds_between
-from ..ingest.celestrak import CelesTrakError
+from ..core.timebase import ensure_utc, seconds_between, shift
+from ..ingest.ops import load_ops_catalog
 from ..ingest.sources import Catalog, DataSource
 from ..maneuver import plan_maneuvers
 from ..propagation import Sgp4Propagator, default_covariance_model
 from ..risk import assess_catalog
+from ..risk.batch import AssessedCatalog
 from ..screening import screen
 from .color import display_band
 
@@ -30,24 +38,13 @@ _HONESTY_SYNTHETIC_TLE = (
 )
 _HONESTY_INFLATE = "DISPLAY BAND inflates one step — TLE covariance"
 _HONESTY_LIVE_FAIL = "live fetch failed — FALLBACK SLICE"
-
-_NETWORK_ERRORS: tuple[type[BaseException], ...] = (
-    CelesTrakError,
-    OSError,
-    TimeoutError,
-    ConnectionError,
+_HONESTY_DEBRIS = "Starlink vs catalog debris over a 3-day TLE screen."
+_HONESTY_RISK_ONLY = (
+    "Only MONITOR / WATCH / ACT are shown. CLEAR objects and events are omitted."
 )
-
-
-def _cap_catalog(catalog: Catalog, max_objects: int) -> Catalog:
-    if max_objects >= len(catalog.objects):
-        return catalog
-    return Catalog(
-        source=catalog.source,
-        objects=list(catalog.objects[:max_objects]),
-        fetched_at=catalog.fetched_at,
-        query=catalog.query,
-    )
+_HONESTY_NO_RISK = "No MONITOR+ events in this window."
+_TRACK_DURATION_S = 5400.0
+_AT_RISK = frozenset({RiskLevel.MONITOR, RiskLevel.WATCH, RiskLevel.ACT})
 
 
 def _screening_start(catalog: Catalog) -> datetime:
@@ -88,16 +85,41 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _ingest(live: bool) -> tuple[Catalog, str | None]:
-    from aegis.ingest import celestrak
-    from aegis.pipeline.run import load_starlink_slice
+def _ingest(live: bool, max_objects: int):
+    return load_ops_catalog(live=live, max_objects=max_objects)
 
-    if not live:
-        return load_starlink_slice(), "slice"
-    try:
-        return celestrak.fetch_celestrak("starlink"), None
-    except _NETWORK_ERRORS:
-        return load_starlink_slice(), "slice"
+
+def _involves_fleet(obj_a, obj_b) -> bool:
+    """Keep fleet–fleet and fleet–debris; drop debris–debris.
+
+    Untagged catalogs (no ``catalog_role``) still screen every pair so
+    pipeline tests keep their existing all-pairs contract.
+    """
+    roles = {
+        (obj_a.metadata or {}).get("catalog_role"),
+        (obj_b.metadata or {}).get("catalog_role"),
+    }
+    if "fleet" in roles:
+        return True
+    if obj_a.is_maneuverable or obj_b.is_maneuverable:
+        return True
+    if "debris" in roles:
+        return False
+    return True
+
+
+def _pair_key(primary_id: str, secondary_id: str) -> tuple[str, str]:
+    return tuple(sorted((primary_id, secondary_id)))
+
+
+def _keep_closest_per_pair(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = _pair_key(row["primary_id"], row["secondary_id"])
+        previous = best.get(key)
+        if previous is None or float(row["miss_km"]) < float(previous["miss_km"]):
+            best[key] = row
+    return sorted(best.values(), key=lambda item: (-float(item["pc"]), item["tca"]))
 
 
 def _lead_days(obj, epoch: datetime) -> float:
@@ -169,40 +191,28 @@ def _unresolved_record(outcome) -> dict[str, Any]:
 def build_scene(
     *,
     max_objects: int = 40,
-    duration_s: float = 5400.0,
+    duration_s: float = SCREENING_HORIZON_S,
     step_s: float = 60.0,
     live: bool = True,
 ) -> dict[str, Any]:
     """Ingest CelesTrak or the slice, run existing physics, return scene JSON."""
-    catalog, fallback = _ingest(live)
-    catalog = _cap_catalog(catalog, max_objects)
+    catalog, fallback = _ingest(live, max_objects)
     objects = list(catalog.objects)
     start = _screening_start(catalog)
 
-    conjunctions = screen(objects, start, duration_s, step_s=step_s)
+    conjunctions = screen(
+        objects,
+        start,
+        duration_s,
+        step_s=step_s,
+        keep_pair=_involves_fleet,
+    )
     assessed = assess_catalog(conjunctions, objects=objects)
-    plan = plan_maneuvers(assessed, objects, now=start)
-
     covariance_source = assessed.covariance_source or CovarianceSource.SYNTHETIC_TLE
     cov_model = default_covariance_model()
 
-    if objects:
-        grid = Sgp4Propagator(objects).propagate_grid(start, duration_s, step_s)
-        times_s = [float(t) for t in np.asarray(grid.times_s, dtype=float)]
-        tracks = {
-            object_id: _track_rows(grid.positions_km[index])
-            for index, object_id in enumerate(grid.object_ids)
-        }
-    else:
-        times_s = []
-        tracks = {}
-
-    by_object_bands: dict[str, list[str]] = {obj.object_id: [] for obj in objects}
-    by_object_events: dict[str, list[str]] = {obj.object_id: [] for obj in objects}
-    inflation_possible = covariance_source == CovarianceSource.SYNTHETIC_TLE
     inflation_applied = False
-
-    conjunction_rows: list[dict[str, Any]] = []
+    risk_rows: list[dict[str, Any]] = []
     for entry in assessed.entries:
         conjunction = entry.conjunction
         assessment = entry.assessment
@@ -215,13 +225,11 @@ def build_scene(
         )
         if band != assessment.risk_level:
             inflation_applied = True
+        if band not in _AT_RISK:
+            continue
         cid = conjunction.conjunction_id
         primary_id = conjunction.primary.object_id
         secondary_id = conjunction.secondary.object_id
-        by_object_bands.setdefault(primary_id, []).append(band)
-        by_object_bands.setdefault(secondary_id, []).append(band)
-        by_object_events.setdefault(primary_id, []).append(cid)
-        by_object_events.setdefault(secondary_id, []).append(cid)
         low_rel = bool(conjunction.metadata.get("low_relative_velocity")) or (
             conjunction.relative_speed_km_s < LOW_RELATIVE_VELOCITY_KM_S
         )
@@ -248,15 +256,76 @@ def build_scene(
         }
         if assessment.cross_check_probability is not None:
             row["pc_chan"] = float(assessment.cross_check_probability)
-        conjunction_rows.append(row)
+        risk_rows.append(row)
+
+    conjunction_rows = _keep_closest_per_pair(risk_rows)
+    kept_ids = {row["id"] for row in conjunction_rows}
+    risk_ids = {
+        object_id
+        for row in conjunction_rows
+        for object_id in (row["primary_id"], row["secondary_id"])
+    }
+    display_objects = [obj for obj in objects if obj.object_id in risk_ids]
+    risk_entries = [
+        entry
+        for entry in assessed.entries
+        if entry.conjunction.conjunction_id in kept_ids
+    ]
+    plan = plan_maneuvers(
+        AssessedCatalog(
+            source=assessed.source,
+            entries=risk_entries,
+            covariance_source=assessed.covariance_source,
+        ),
+        display_objects,
+        now=start,
+    )
+
+    track_start = start
+    if conjunction_rows:
+        first_tca = min(
+            ensure_utc(datetime.fromisoformat(row["tca"])) for row in conjunction_rows
+        )
+        track_start = shift(first_tca, -_TRACK_DURATION_S / 2.0)
+        if track_start < start:
+            track_start = start
+    track_step = (
+        min(float(step_s), float(CONSOLE_TRACK_STEP_S))
+        if duration_s > 7200
+        else float(step_s)
+    )
+
+    if display_objects:
+        grid = Sgp4Propagator(display_objects).propagate_grid(
+            track_start, _TRACK_DURATION_S, track_step
+        )
+        times_s = [float(t) for t in np.asarray(grid.times_s, dtype=float)]
+        tracks = {
+            object_id: _track_rows(grid.positions_km[index])
+            for index, object_id in enumerate(grid.object_ids)
+        }
+    else:
+        times_s = []
+        tracks = {}
+
+    by_object_bands: dict[str, list[str]] = {obj.object_id: [] for obj in display_objects}
+    by_object_events: dict[str, list[str]] = {obj.object_id: [] for obj in display_objects}
+    for row in conjunction_rows:
+        by_object_bands.setdefault(row["primary_id"], []).append(row["display_band"])
+        by_object_bands.setdefault(row["secondary_id"], []).append(row["display_band"])
+        by_object_events.setdefault(row["primary_id"], []).append(row["id"])
+        by_object_events.setdefault(row["secondary_id"], []).append(row["id"])
 
     object_rows: list[dict[str, Any]] = []
-    for obj in objects:
+    for obj in display_objects:
         sigmas = cov_model.sigmas_rtn_km(obj, _lead_days(obj, start))
         object_rows.append(
             {
                 "id": obj.object_id,
                 "name": obj.name or obj.object_id,
+                "object_type": obj.object_type,
+                "role": obj.metadata.get("catalog_role", "fleet"),
+                "maneuverable": bool(obj.is_maneuverable),
                 "track": tracks.get(obj.object_id, []),
                 "color_band": _worst_band(by_object_bands.get(obj.object_id, [])),
                 "sigma_rtn_km": [float(sigmas[0]), float(sigmas[1]), float(sigmas[2])],
@@ -265,11 +334,13 @@ def build_scene(
         )
 
     unresolved = sorted(plan.unresolved, key=lambda item: item.shortfall_km, reverse=True)
-    honesty = [_HONESTY_SYNTHETIC_TLE]
+    honesty = [_HONESTY_SYNTHETIC_TLE, _HONESTY_DEBRIS, _HONESTY_RISK_ONLY]
     if fallback == "slice":
         honesty.append(_HONESTY_LIVE_FAIL)
-    if inflation_possible or inflation_applied:
+    if inflation_applied:
         honesty.append(_HONESTY_INFLATE)
+    if not conjunction_rows:
+        honesty.append(_HONESTY_NO_RISK)
 
     payload = {
         "source": DataSource.CELESTRAK,
@@ -277,10 +348,12 @@ def build_scene(
         "covariance_source": covariance_source,
         "fetched_at": _iso(catalog.fetched_at),
         "query": catalog.query,
-        "epoch": _iso(start),
+        "epoch": _iso(track_start),
         "duration_s": float(duration_s),
         "step_s": float(step_s),
+        "track_step_s": float(track_step),
         "max_objects": int(max_objects),
+        "screened_objects": len(objects),
         "live": bool(live),
         "box_km": [float(v) for v in SCREENING_BOX_STARLINK_KM],
         "times_s": times_s,

@@ -46,6 +46,17 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
+def _cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Cross product of two length-3 vectors, without numpy.cross's dispatch."""
+    return np.array(
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    )
+
+
 def rtn_basis(position_km: np.ndarray, velocity_km_s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build the RTN basis vectors for one object from its inertial state.
 
@@ -77,13 +88,19 @@ def rtn_basis(position_km: np.ndarray, velocity_km_s: np.ndarray) -> tuple[np.nd
 
     r_hat = position_km / r_norm
 
-    angular_momentum = np.cross(position_km, velocity_km_s)
+    # The cross products are written out componentwise rather than via
+    # numpy.cross. For length-3 vectors the arithmetic is identical, but
+    # numpy.cross dispatches through moveaxis and normalize_axis_tuple, and
+    # this function is the hottest in the whole screening path -- profiling a
+    # 26-object screen showed 174 057 calls with 6.8 s of the 18 s total spent
+    # inside that dispatch machinery rather than on arithmetic.
+    angular_momentum = _cross3(position_km, velocity_km_s)
     h_norm = np.linalg.norm(angular_momentum)
     if h_norm == 0.0:
         raise ValueError("cannot build an RTN frame for a radial (zero angular momentum) trajectory")
 
     n_hat = angular_momentum / h_norm
-    t_hat = np.cross(n_hat, r_hat)
+    t_hat = _cross3(n_hat, r_hat)
 
     return r_hat, t_hat, n_hat
 

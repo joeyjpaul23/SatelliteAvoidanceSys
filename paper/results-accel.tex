@@ -1,0 +1,111 @@
+Before any of what follows, a profile is needed, because it changes which
+number matters. On a 26-object scenario over four orbits the initial screen
+costs \SI{14.7}{\second}, the SGP4 re-screen \SI{11.2}{\second}, latent-row
+enumeration \SI{1.0}{\second}, and the linear program \SI{0.24}{\second}. The
+LP is \textbf{1\%} of the runtime. Accelerating it, which is what the
+predict-and-certify machinery does, is therefore worth at most one per cent
+however well it works --- and the three changes that actually mattered were
+exact algorithmic ones: memoising a rotation matrix per (object, epoch) and
+writing out the cross products by hand (\textbf{2.1$\times$} on screening,
+conjunction lists bit-identical), restricting the re-screen to pairs touching a
+burn since nothing else moved (\textbf{2.5--14$\times$}, induced counts
+identical), and the lazy closure below (up to \textbf{5$\times$} on the LP,
+$\dv$ identical to 0.0e+00). End to end, \textbf{3.8$\times$}.
+
+A fourth exact change removes the remaining scaling limit, which is memory
+rather than time. The slack block is diagonal --- one slack column per resolve
+or latent row --- so each latent row carries $n_{\text{lifted}}+1$ nonzeros
+while the column count itself grows with the latent count, making dense storage
+quadratic in the only dimension that grows. At \num{20840} rows the matrix is
+\SI{0.23}{\percent} dense. Assembling coordinate triplets and materialising CSR
+above four million elements takes peak assembly memory from \SI{3575}{\mega\byte}
+to \SI{84}{\mega\byte}, a factor of \num{42.5}, with the matrix entrywise
+identical, the solution vector bit-identical, and 56 of 56 benchmark rows
+reproduced to \num{0.0e+00}.
+
+With that said, the lazy-constraint closure returns the exact optimum for any
+guess, and its speedup grows with the problem. With an oracle guess on the
+\texttt{induced-cascade} family, varying the neighbour count and the latent
+grid step:
+
+\begin{center}
+\begin{tabular}{rrrrr}
+\toprule
+latent rows & rows used & full solve & lazy solve & speedup \\
+\midrule
+   68 & 1 & \SI{4.5}{\milli\second}   & \SI{2.5}{\milli\second}  & $1.8\times$ \\
+  358 & 2 & \SI{18.5}{\milli\second}  & \SI{5.4}{\milli\second}  & $3.5\times$ \\
+  820 & 2 & \SI{48.5}{\milli\second}  & \SI{8.3}{\milli\second}  & $5.9\times$ \\
+ 1716 & 2 & \SI{145.8}{\milli\second} & \SI{16.1}{\milli\second} & $\mathbf{9.0\times}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Objective gap exactly zero at every size. Exactness was verified against an
+empty, a learned, and a deliberately adversarial guess over 27 problems: max
+relative gap \num{1.4e-16}. An independent verifier repeated this with its own
+seeds, spacings and neighbour counts over 20 further problems and 60
+comparisons, and reported a maximum gap of \textbf{exactly zero}, bit-identical,
+while confirming that the guess genuinely changes the number of rows used and
+therefore the search path.
+
+\paragraph{The learned predictor did not pay off.} A physics-informed graph
+network (\num{892}k parameters) was trained on 320 scenarios across eight
+families, split by scenario digest (258/39/23), with a loss combining
+imitation of the solver's active set and duals with a physics term evaluating
+real constraint residuals through the stored sensitivity tensors. Training is
+exactly reproducible: two runs at the same seed gave identical validation loss
+(difference \num{0}). Calibrated for recall, it retains \SI{64.6}{\percent} of
+rows at \SI{100}{\percent} recall, or \SI{25.5}{\percent} at
+\SI{96.2}{\percent}.
+
+On 18 held-out large scenarios the objective gap remained exactly zero --- the
+certification is indifferent to the model's quality --- but the median
+end-to-end speedup including inference was $0.77\times$, against roughly
+$4\times$ for simply starting from the \emph{empty} set. Two measurable
+reasons: the active set is far smaller than the network's output (two binding
+rows out of 1716, against 2--146 proposed), and inference costs
+\SIrange{8}{56}{\milli\second} against a \SIrange{14}{180}{\milli\second}
+solve.
+
+A wider search confirmed and sharpened this. Four row-selection strategies were
+compared, all returning a bit-identical objective: the empty guess
+(\numrange{1.3}{10.6}$\times$, using 0--9 rows of 1716), the trained network
+(\numrange{0.16}{1.91}$\times$, 119--199 rows), a \emph{certified} analytic
+per-row prune (\numrange{0.65}{0.98}$\times$), and that prune combined with an
+analytic a-posteriori guess (\numrange{0.43}{0.97}$\times$). The certified prune
+deserves a note: a row can only be violated if the budget can move it past its
+nominal margin, which is checkable in closed form, and over 8\,896 rows it lost
+\textbf{zero} binding rows while pruning \SIrange{15}{65}{\percent}. It is
+sound, and it is still slower than predicting nothing.
+
+The claim that survives is about the mechanism: an active-set guess can be
+turned into an exactly-certified speedup that grows with problem size. The claim
+that does not survive is that \emph{any} predictor --- learned or analytic ---
+supplies a better guess than the trivial one. The active set holds two to eleven
+rows out of seventeen hundred, so a useful predictor would have to be cheaper
+than free. We report this as measured, and note the general pattern it belongs
+to: every acceleration that worked in this system replaced a guess with a cheap
+way to \emph{know}.
+
+\paragraph{Triage: a ceiling that means nothing.} A separate bake-off asked
+whether a model could decide, from mean elements alone and before any
+propagation, that a scenario needs no maneuver at all --- 53\% of a benchmark
+sweep needs none and pays full screening cost anyway. Every model family
+reached ROC-AUC \num{1.0} and specificity \num{1.0} at recall \num{1.0} on a
+held-out split: a two-feature closed-form rule at \SI{0.57}{\micro\second},
+logistic regression, gradient boosting, random forests, $k$-NN, MLPs, deep
+ensembles, MC-dropout, Bayes-by-backprop, a Bayesian LSTM, DeepSets, a Set
+Transformer and a 1D CNN.
+
+That ceiling is an artifact. The label is constant within nine of the ten
+scenario families, so the task is family recognition and two pooled statistics
+accomplish it. A leave-one-family-out refit makes the failure explicit: with
+\texttt{induced-cascade} held out, the rule skips \textbf{100 of 100} scenarios
+that needed a maneuver --- recall \num{0.000}. Since the one intolerable error
+for this system is a false negative, no triage gate is deployed. The genuinely
+sound physics rule --- skip if no pair passes the perigee/apogee prefilter ---
+fires on \textbf{0 of 423} scenarios, because every synthetic family lives on a
+single \SI{550}{\kilo\meter} shell. A benchmark that could discriminate here
+needs families whose label varies \emph{within} the family.
+

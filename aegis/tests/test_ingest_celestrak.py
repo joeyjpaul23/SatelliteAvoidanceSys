@@ -231,6 +231,18 @@ def test_default_url_is_gp_not_supplemental(tmp_path: Path) -> None:
     assert "supplemental" not in url
     assert "gp.php" in url
     assert "stations" in url
+    assert "GROUP=" in url
+
+
+def test_name_field_uses_name_query(tmp_path: Path) -> None:
+    session = FakeSession(_tle_response())
+    catalog = fetch_celestrak(
+        "DEB", field="NAME", session=session, cache_dir=tmp_path
+    )
+    url = session.calls[0]["url"]
+    assert "NAME=DEB" in url
+    assert "GROUP=" not in url
+    assert "name=DEB" in catalog.query
 
 
 def test_query_includes_group_name(tmp_path: Path) -> None:

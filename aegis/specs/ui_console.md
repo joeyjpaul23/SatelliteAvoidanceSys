@@ -2,9 +2,11 @@
 
 Decisions from the operator (2026-08-30):
 
-- **Catalog:** live CelesTrak Starlink when the network works; **cached slice** if it fails. Never synthetic as a fallback.
+- **Catalog:** live CelesTrak Starlink **plus overlapping catalog debris** (`NAME=DEB`) when the network works; **cached slices** if it fails. Never synthetic as a fallback.
+- **Horizon:** **3 days** (`SCREENING_HORIZON_S`). Not 90 minutes.
 - **Scope:** visualize everything the backend already computes (tracks, risk, covariance, screening geometry, flags, plan, provenance).
-- **Scale:** object-count slider, default **40**, hard cap **200**.
+- **Scale:** object-count slider, default **40** (split ~half Starlink / half debris), hard cap **200**. Slider is how many objects are **screened**. The globe and lists only show objects in MONITOR / WATCH / ACT events.
+- **Display:** omit CLEAR. One event per pair (closest miss). Tracks are ~one orbit around the first at-risk TCA, not the full 3-day window.
 
 This is an operations console over the existing pipeline, not a new physics layer.
 
@@ -53,15 +55,16 @@ FastAPI  aegis.api
 
 ### `GET /api/scene`
 
-Query: `max_objects` (1–200, default 40), `duration_s` (default 5400), `step_s` (default 60), `live=1` (default true).
+Query: `max_objects` (1–200, default 40), `duration_s` (default `SCREENING_HORIZON_S` = 259200 / 3 days), `step_s` (default 60), `live=1` (default true).
 
 Ingest:
 
-1. If `live=1`, try `fetch_celestrak("starlink")`. On `CelesTrakError` / network fail → `load_starlink_slice()` and set `fallback="slice"`.
-2. Never call `generate_synthetic` on this path.
-3. Cap with `max_objects`.
+1. If `live=1`, try `fetch_celestrak("starlink")` and `fetch_celestrak("DEB", field="NAME")`. On `CelesTrakError` / network fail for a half → that half’s committed slice (`starlink_slice.tle` / `debris_slice.tle`) and set `fallback="slice"`.
+2. Keep debris whose altitude band can meet the Starlink slice (same pad as the apogee/perigee prefilter). Cap ~half fleet / ~half debris.
+3. Never call `generate_synthetic` on this path.
+4. Tag Starlink as maneuverable PAYLOAD; debris as DEBRIS (not maneuverable).
 
-Then: propagate grid; screen; assess_catalog; plan_maneuvers (empty plan is fine). Build JSON:
+Then: screen with `keep_pair` (skip debris–debris); assess_catalog; drop CLEAR (keep MONITOR / WATCH / ACT, using `display_band` so TLE inflation still shows); one closest event per pair; propagate **only those objects** for ~one orbit around the first TCA; plan_maneuvers on the at-risk set. Build JSON:
 
 ```
 {
@@ -99,7 +102,7 @@ No extra physics.
 1. **API:** live fail → scene `source=CELESTRAK`, `fallback=slice`, no SYNTHETIC objects (mock `fetch_celestrak` to raise).
 2. **API:** `max_objects=5` → ≤5 objects.
 3. **API:** `max_objects=201` → 400.
-4. **API:** every object has `color_band` in {CLEAR,MONITOR,WATCH,ACT}; honesty mentions SYNTHETIC_TLE.
+4. **API:** displayed objects have `color_band` in {MONITOR,WATCH,ACT} (CLEAR omitted); honesty mentions SYNTHETIC_TLE and the risk-only rule. `screened_objects` is the catalog size; `objects` is the at-risk subset.
 5. **Color helper** (pure function in `aegis.api.color` used by scene builder): band from Pc; +1 if synthetic TLE and (dilution or miss < 3σ). Unit tests on that function.
 6. **Static:** `GET /` returns HTML containing a globe mount and no “AI” marketing copy.
 7. **Optional:** TestClient loads `/js/scene.js`.

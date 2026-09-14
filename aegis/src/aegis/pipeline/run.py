@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..core.state import CovarianceSource
+from ..ingest.ops import load_debris_slice, load_ops_catalog, load_starlink_slice
 from ..ingest.sources import (
     Catalog,
     DataSource,
@@ -22,13 +23,12 @@ from .errors import PipelineError
 if TYPE_CHECKING:
     from ..ingest.synthetic import SyntheticAuthorization, SyntheticSpec
 
-__all__ = ["run_pipeline", "load_starlink_slice"]
-
-# ``tests/fixtures/starlink_slice.tle`` relative to the package root (the
-# directory that contains ``src/`` and ``tests/``). Independent of cwd so
-# ``cwd=aegis/`` + ``PYTHONPATH=src`` resolves the committed fixture.
-_AEGIS_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_STARLINK_SLICE = _AEGIS_ROOT / "tests" / "fixtures" / "starlink_slice.tle"
+__all__ = [
+    "run_pipeline",
+    "load_starlink_slice",
+    "load_debris_slice",
+    "load_ops_catalog",
+]
 
 _SYNTHETIC_REFUSED = (
     "synthetic data was refused: AEGIS_ALLOW_SYNTHETIC=1 "
@@ -85,28 +85,6 @@ def _ingest_celestrak(group: str, session, cache_dir) -> Catalog:
         raise
     except Exception as error:
         raise PipelineError(f"CelesTrak ingest failed: {error}") from error
-
-
-def load_starlink_slice(
-    path: str | Path | None = None,
-    *,
-    max_objects: int | None = None,
-) -> Catalog:
-    """Load the committed offline Starlink TLE slice as a CelesTrak catalog.
-
-    Default ``path`` is ``tests/fixtures/starlink_slice.tle``, resolved from
-    the aegis package root (the directory containing ``src/`` and
-    ``tests/``), not from the process working directory. That location is
-    correct when cwd is ``aegis/`` with ``PYTHONPATH=src``.
-
-    ``max_objects`` keeps the first N objects, matching the pipeline cap.
-    Does not open HTTP and does not call ``generate_synthetic``. Catalog
-    ``source`` and every object ``data_source`` are ``CELESTRAK``.
-    """
-    from ..ingest.celestrak import catalog_from_tle_file
-
-    file_path = Path(path) if path is not None else _DEFAULT_STARLINK_SLICE
-    return _cap_catalog(catalog_from_tle_file(file_path), max_objects)
 
 
 def _ingest_tle_file(path: str | Path) -> Catalog:

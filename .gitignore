@@ -10,3 +10,13 @@
 archive/kelvins-agent-b/data/*.csv
 archive/kelvins-agent-b/data/*.zip
 archive/kelvins-agent-b/data/extracted/
+.gstack/
+
+# Generated research artifacts: benchmark reports, ML datasets, checkpoints,
+# and the experiment database. Reproducible from the CLI; not source.
+artifacts/
+aegis/artifacts/
+
+# C++ build tree: compiled binaries plus a CMake cache holding absolute paths
+# from whatever directory the project happened to live in when it was built.
+orbitlab/build/

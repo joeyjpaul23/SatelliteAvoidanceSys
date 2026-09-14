@@ -302,32 +302,53 @@ class CelesTrakClient:
             session = requests.Session()
         self.session = session
 
-    def fetch_gp(self, group: str, *, fmt: str = "tle", supplement: bool = False) -> Catalog:
+    def fetch_gp(
+        self,
+        group: str,
+        *,
+        fmt: str = "tle",
+        supplement: bool = False,
+        field: str = "GROUP",
+    ) -> Catalog:
         """Download (or reuse a fresh cache of) one CelesTrak group.
 
         Parameters
         ----------
         group
-            CelesTrak ``GROUP`` (GP) or ``FILE`` (SupGP) name.
+            CelesTrak ``GROUP`` / ``NAME`` (GP) or ``FILE`` (SupGP) value.
         fmt
             ``tle`` for 2-line / 3-line element sets, ``json`` for OMM JSON.
         supplement
             When true, use the supplemental GP endpoint.
+        field
+            Query key for the GP URL: ``GROUP`` (default) or ``NAME``.
+            CelesTrak has no ``GROUP=debris``; debris is ``NAME=DEB``.
         """
-        body, fetched_at = self._load_or_fetch(group, fmt=fmt, supplement=supplement)
+        field = field.upper()
+        if field not in {"GROUP", "NAME"}:
+            raise CelesTrakError(f"unsupported CelesTrak field: {field!r}")
+        body, fetched_at = self._load_or_fetch(
+            group, fmt=fmt, supplement=supplement, field=field
+        )
         objects = self._parse_body(body, fmt=fmt)
         kind = "supplemental" if supplement else "gp"
+        query_key = "file" if supplement else field.lower()
         return Catalog(
             source=DataSource.CELESTRAK,
             objects=objects,
             fetched_at=fetched_at,
-            query=f"celestrak {kind} group={group} fmt={fmt}",
+            query=f"celestrak {kind} {query_key}={group} fmt={fmt}",
         )
 
-    def _cache_path(self, group: str, fmt: str, supplement: bool) -> Path:
+    def _cache_path(
+        self, group: str, fmt: str, supplement: bool, field: str = "GROUP"
+    ) -> Path:
         kind = "supgp" if supplement else "gp"
         safe_group = _CACHE_NAME_SAFE.sub("_", group)
         safe_fmt = _CACHE_NAME_SAFE.sub("_", fmt)
+        if field.upper() != "GROUP":
+            safe_field = _CACHE_NAME_SAFE.sub("_", field.lower())
+            return self.cache_dir / f"{safe_field}_{safe_group}_{safe_fmt}_{kind}.cache"
         return self.cache_dir / f"{safe_group}_{safe_fmt}_{kind}.cache"
 
     def _read_fresh_cache(self, path: Path) -> tuple[str, datetime] | None:
@@ -343,10 +364,11 @@ class CelesTrakClient:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
 
-    def _url(self, group: str, fmt: str, supplement: bool) -> str:
+    def _url(self, group: str, fmt: str, supplement: bool, field: str = "GROUP") -> str:
         if supplement:
             return f"{_SUP_GP_URL}?FILE={quote(group, safe='')}&FORMAT={quote(fmt, safe='')}"
-        return f"{_GP_URL}?GROUP={quote(group, safe='')}&FORMAT={quote(fmt, safe='')}"
+        key = "NAME" if field.upper() == "NAME" else "GROUP"
+        return f"{_GP_URL}?{key}={quote(group, safe='')}&FORMAT={quote(fmt, safe='')}"
 
     def _fetch_body(self, url: str) -> str:
         headers = {"User-Agent": CELESTRAK_USER_AGENT}
@@ -376,12 +398,14 @@ class CelesTrakClient:
             raise last_error
         raise CelesTrakError(f"CelesTrak request failed for {url}")
 
-    def _load_or_fetch(self, group: str, *, fmt: str, supplement: bool) -> tuple[str, datetime]:
-        path = self._cache_path(group, fmt, supplement)
+    def _load_or_fetch(
+        self, group: str, *, fmt: str, supplement: bool, field: str = "GROUP"
+    ) -> tuple[str, datetime]:
+        path = self._cache_path(group, fmt, supplement, field=field)
         cached = self._read_fresh_cache(path)
         if cached is not None:
             return cached
-        body = self._fetch_body(self._url(group, fmt, supplement))
+        body = self._fetch_body(self._url(group, fmt, supplement, field=field))
         self._write_cache(path, body)
         return body, utc_now()
 
@@ -425,11 +449,13 @@ def fetch_celestrak(
     supplement: bool = False,
     session=None,
     cache_dir=None,
+    field: str = "GROUP",
 ) -> Catalog:
     """Fetch a CelesTrak GP or supplemental GP catalog.
 
     Does not consult ``AEGIS_ALLOW_SYNTHETIC``. When ``session`` is supplied
-    the client does not open its own HTTP connection.
+    the client does not open its own HTTP connection. ``field="NAME"``
+    queries ``gp.php?NAME=...`` (used for debris).
     """
     client = CelesTrakClient(cache_dir=cache_dir, session=session)
-    return client.fetch_gp(group, fmt=fmt, supplement=supplement)
+    return client.fetch_gp(group, fmt=fmt, supplement=supplement, field=field)

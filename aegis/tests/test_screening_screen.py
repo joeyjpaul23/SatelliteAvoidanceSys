@@ -320,3 +320,17 @@ def test_screen_includes_intra_fleet_pairs(monkeypatch: pytest.MonkeyPatch) -> N
     assert matches, "intra-fleet pairs must not be excluded from screening"
     assert any(c.is_intra_fleet for c in matches)
     assert any(c.miss_distance_km < 44.0 for c in matches)
+
+
+def test_screen_keep_pair_can_drop_pairs() -> None:
+    objects = _formation_pair("A", "B")
+    duration_s = 1.5 * objects[0].elements.period_s
+    hits = screen(objects, objects[0].elements.epoch, duration_s)
+    assert hits
+    dropped = screen(
+        objects,
+        objects[0].elements.epoch,
+        duration_s,
+        keep_pair=lambda _a, _b: False,
+    )
+    assert dropped == []

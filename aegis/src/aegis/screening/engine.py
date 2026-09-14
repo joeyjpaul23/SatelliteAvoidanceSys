@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
@@ -74,18 +75,32 @@ def _cluster_entered_box(
     box_km: tuple[float, float, float],
     object_a: SpaceObject,
     object_b: SpaceObject,
+    rotation_cache: dict[tuple[int, int], np.ndarray] | None = None,
 ) -> bool:
-    """True if any cluster sample lies inside the assigned primary's RTN box."""
+    """True if any cluster sample lies inside the assigned primary's RTN box.
+
+    ``rotation_cache`` memoises the primary's RTN-to-ECI matrix by
+    ``(object index, time index)``. The matrix depends only on that object's
+    own state, but every pair the object belongs to recomputes it: in a
+    26-object catalog each object appears in 25 pairs, so the cache removes
+    about 25x of redundant work from the hottest path in screening. Values are
+    identical either way -- this is memoisation, not approximation.
+    """
     primary, _secondary = assign_primary(object_a, object_b)
     primary_index = index_a if primary is object_a else index_b
     other_index = index_b if primary_index == index_a else index_a
     for time_index in cluster:
         if not (grid.valid[primary_index, time_index] and grid.valid[other_index, time_index]):
             continue
-        rotation = rtn_to_eci_matrix(
-            grid.positions_km[primary_index, time_index],
-            grid.velocities_km_s[primary_index, time_index],
-        )
+        key = (primary_index, time_index)
+        rotation = None if rotation_cache is None else rotation_cache.get(key)
+        if rotation is None:
+            rotation = rtn_to_eci_matrix(
+                grid.positions_km[primary_index, time_index],
+                grid.velocities_km_s[primary_index, time_index],
+            )
+            if rotation_cache is not None:
+                rotation_cache[key] = rotation
         relative_rtn = rotation.T @ (
             grid.positions_km[other_index, time_index] - grid.positions_km[primary_index, time_index]
         )
@@ -103,6 +118,7 @@ def screen(
     box_km: tuple[float, float, float] = SCREENING_BOX_STARLINK_KM,
     propagator: Sgp4Propagator | None = None,
     partitioned: bool | None = None,
+    keep_pair: Callable[[SpaceObject, SpaceObject], bool] | None = None,
 ) -> list[Conjunction]:
     """Find close approaches that enter the RTN screening box.
 
@@ -113,6 +129,9 @@ def screen(
     phase on when ``len(objects) >= SCREENING_PARTITION_MIN_OBJECTS``.
     Catalogs at that size also propagate in
     :data:`~aegis.constants.SCREENING_BLOCK_DURATION_S` blocks.
+
+    ``keep_pair(obj_a, obj_b)`` if set must return True to retain a
+    prefilter pair. Used by the console to skip debris–debris.
     """
     _reject_mixed_sources(objects)
     if len(objects) < 2:
@@ -141,6 +160,8 @@ def screen(
     grid_index = {object_id: i for i, object_id in enumerate(propagator.object_ids)}
     surviving: set[tuple[int, int]] = set()
     for index_a, index_b in prefilter_pairs(objects):
+        if keep_pair is not None and not keep_pair(objects[index_a], objects[index_b]):
+            continue
         grid_a = grid_index.get(objects[index_a].object_id)
         grid_b = grid_index.get(objects[index_b].object_id)
         if grid_a is None or grid_b is None:
@@ -168,6 +189,7 @@ def screen(
 
     conjunctions: list[Conjunction] = []
     seen_ids: set[str] = set()
+    rotation_cache: dict[tuple[int, int], np.ndarray] = {}
     for (index_a, index_b), time_indices in by_pair.items():
         for cluster in _cluster_time_indices(time_indices):
             t_guess = _best_guess_epoch(grid, index_a, index_b, cluster)
@@ -180,6 +202,7 @@ def screen(
                 box_km,
                 propagator.objects[index_a],
                 propagator.objects[index_b],
+                rotation_cache,
             )
             if not entered:
                 continue

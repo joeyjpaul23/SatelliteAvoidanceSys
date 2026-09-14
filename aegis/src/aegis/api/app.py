@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from aegis import __version__
+from aegis.constants import CONSOLE_STEP_S, SCREENING_HORIZON_S
+from aegis.ingest.socrates import SocratesError, fetch_starlink_alerts
 
 from .scene import build_scene
 
@@ -50,11 +52,58 @@ def health() -> dict[str, object]:
     return {"ok": True, "version": __version__}
 
 
+@app.get("/api/starlink-alerts")
+def starlink_alerts(
+    limit: int = Query(100, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    min_max_probability: float = Query(0.0, ge=0.0, le=1.0),
+    max_miss_km: float = Query(5.0, ge=0.0),
+) -> dict[str, object]:
+    """All free SOCRATES candidates involving Starlink, ranked and paginated."""
+    try:
+        catalog = fetch_starlink_alerts()
+    except SocratesError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    matching = [
+        event
+        for event in catalog.events
+        if event.max_probability >= min_max_probability
+        and event.miss_distance_km <= max_miss_km
+    ]
+    matching.sort(key=lambda event: (-event.max_probability, event.tca, event.event_id))
+    page = matching[offset : offset + limit]
+    horizon_start = catalog.horizon_start
+    horizon_end = catalog.horizon_end
+    return {
+        "source": "CELESTRAK_SOCRATES",
+        "source_url": catalog.source_url,
+        "fetched_at": catalog.fetched_at.isoformat(),
+        "stale": catalog.stale,
+        "probability_kind": "SOCRATES_MAXIMUM_PROBABILITY",
+        "total_feed_events": catalog.total_feed_events,
+        "total_starlink_events": len(catalog.events),
+        "filtered_events": len(matching),
+        "unique_starlink_objects": len(catalog.unique_starlink_ids),
+        "horizon_start": horizon_start.isoformat() if horizon_start else None,
+        "horizon_end": horizon_end.isoformat() if horizon_end else None,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(page) < len(matching),
+        "events": [event.as_dict() for event in page],
+        "honesty": [
+            "Complete SOCRATES rows involving Starlink, not the console object slider sample.",
+            "Maximum probability is a conservative SOCRATES metric, not AEGIS Alfano Pc.",
+            "Candidates are public-data screening alerts, not flight-ready maneuver decisions.",
+        ],
+    }
+
+
 @app.get("/api/scene")
 def scene(
     max_objects: int = Query(40),
-    duration_s: float = Query(5400),
-    step_s: float = Query(60),
+    duration_s: float = Query(SCREENING_HORIZON_S),
+    step_s: float = Query(CONSOLE_STEP_S),
     live: str = Query("true"),
 ) -> dict:
     if max_objects < 1 or max_objects > 200:
