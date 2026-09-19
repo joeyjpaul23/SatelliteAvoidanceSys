@@ -14,3 +14,11 @@ import pytest
 def isolate_synthetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Synthetic ingest is opt-in; never inherit ``AEGIS_ALLOW_SYNTHETIC``."""
     monkeypatch.delenv("AEGIS_ALLOW_SYNTHETIC", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def isolate_spacetrack_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real Space-Track credentials on a developer machine must never reach tests."""
+    monkeypatch.setenv("AEGIS_DOTENV", "0")
+    monkeypatch.delenv("SPACETRACK_USER", raising=False)
+    monkeypatch.delenv("SPACETRACK_PASS", raising=False)

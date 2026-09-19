@@ -26,12 +26,15 @@ __all__ = [
 class DataSource:
     """Acquisition path that produced a catalogued object.
 
-    These are the only two values ingest may write onto ``SpaceObject.data_source``.
+    These are the only values ingest may write onto ``SpaceObject.data_source``.
+    CelesTrak and Space-Track are both real tracking data, but they are
+    separate acquisition paths and a catalog never mixes them.
     """
 
     CELESTRAK = "CELESTRAK"
+    SPACETRACK = "SPACETRACK"
     SYNTHETIC = "SYNTHETIC"
-    ALL = (CELESTRAK, SYNTHETIC)
+    ALL = (CELESTRAK, SPACETRACK, SYNTHETIC)
 
 
 class CatalogError(Exception):
@@ -68,7 +71,7 @@ class Catalog:
     Parameters
     ----------
     source
-        ``DataSource.CELESTRAK`` or ``DataSource.SYNTHETIC``.
+        One of ``DataSource.ALL``.
     objects
         Catalogued objects; every entry must carry ``data_source == source``.
         An empty list is allowed.

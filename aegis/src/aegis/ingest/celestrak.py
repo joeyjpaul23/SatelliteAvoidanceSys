@@ -216,7 +216,10 @@ def _optional_int(record: dict, *keys: str, default: int = 0) -> int:
     return default
 
 
-def _space_object_from_omm(record: dict) -> SpaceObject:
+def _space_object_from_omm(
+    record: dict, *, data_source: str = DataSource.CELESTRAK
+) -> SpaceObject:
+    """Parse one OMM JSON record. Space-Track GP uses the same schema."""
     try:
         norad = str(int(record["NORAD_CAT_ID"]))
         name = str(record.get("OBJECT_NAME") or norad)
@@ -254,7 +257,7 @@ def _space_object_from_omm(record: dict) -> SpaceObject:
         operator=None,
         tle_line1=line1,
         tle_line2=line2,
-        data_source=DataSource.CELESTRAK,
+        data_source=data_source,
     )
 
 

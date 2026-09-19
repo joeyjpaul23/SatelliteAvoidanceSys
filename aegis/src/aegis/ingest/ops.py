@@ -1,6 +1,9 @@
 """Starlink fleet plus overlapping debris for operational screening.
 
-Both halves are CelesTrak. This module never calls the synthetic generator.
+Live source order: Space-Track when ``SPACETRACK_USER`` / ``SPACETRACK_PASS``
+are set, else CelesTrak, else the committed CelesTrak slices. Both halves of
+one catalog always come from the same source. This module never calls the
+synthetic generator.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from ..constants import (
 )
 from ..core.objects import ObjectType, Operator, SpaceObject
 from .celestrak import CelesTrakError, catalog_from_tle_file
-from .sources import Catalog, DataSource
+from .sources import Catalog
 
 __all__ = [
     "load_starlink_slice",
@@ -137,7 +140,9 @@ def _tag_fleet(obj: SpaceObject) -> SpaceObject:
 
 def _tag_debris(obj: SpaceObject) -> SpaceObject:
     name = (obj.name or "").upper()
-    if "R/B" in name:
+    if obj.object_type in (ObjectType.DEBRIS, ObjectType.ROCKET_BODY):
+        pass  # typed by the source (Space-Track OMM); keep it
+    elif "R/B" in name:
         obj.object_type = ObjectType.ROCKET_BODY
     else:
         obj.object_type = ObjectType.DEBRIS
@@ -176,11 +181,11 @@ def mix_fleet_and_debris(
     fleet_part = [_tag_fleet(obj) for obj in fleet.objects[:n_fleet]]
     debris_part = [_tag_debris(obj) for obj in debris_unique[:n_debris]]
     objects = fleet_part + debris_part
-    query = "celestrak starlink+debris"
+    query = f"{fleet.source.lower()} starlink+debris"
     if fleet.query or debris.query:
         query = f"{fleet.query} | {debris.query}".strip(" |")
     return Catalog(
-        source=DataSource.CELESTRAK,
+        source=fleet.source,
         objects=objects,
         fetched_at=max(fleet.fetched_at, debris.fetched_at),
         query=query,
@@ -211,12 +216,32 @@ def _fetch_debris(*, live: bool) -> tuple[Catalog, bool]:
         return load_debris_slice(), True
 
 
+def _fetch_spacetrack() -> tuple[Catalog, Catalog] | None:
+    """Both halves from Space-Track, or ``None`` if unconfigured or failing."""
+    from . import spacetrack
+
+    if spacetrack.credentials_from_env() is None:
+        return None
+    client = spacetrack.SpaceTrackClient()
+    try:
+        return client.fetch_fleet(), client.fetch_debris()
+    except (spacetrack.SpaceTrackError, *_NETWORK_ERRORS):
+        return None
+
+
 def load_ops_catalog(*, live: bool = True, max_objects: int = 40) -> tuple[Catalog, str | None]:
-    """Starlink + overlapping debris, live CelesTrak with slice fallback.
+    """Starlink + overlapping debris: Space-Track, then CelesTrak, then slices.
 
     Never generates synthetic objects. ``fallback`` is ``\"slice\"`` when
-    either half came from a committed fixture.
+    either half came from a committed fixture. A Space-Track failure falls
+    back to CelesTrak for both halves, which ``catalog.source`` reports.
     """
+    if live:
+        pair = _fetch_spacetrack()
+        if pair is not None:
+            fleet, debris = pair
+            debris = overlapping_debris(debris, fleet)
+            return mix_fleet_and_debris(fleet, debris, max_objects=max_objects), None
     fleet, fleet_slice = _fetch_fleet(live=live)
     debris, debris_slice = _fetch_debris(live=live)
     debris = overlapping_debris(debris, fleet)

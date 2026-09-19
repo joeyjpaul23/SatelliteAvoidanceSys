@@ -5,12 +5,12 @@ Python package for ingest → screen → assess → plan, plus the local operati
 ```
 src/aegis/     code (dependencies point downward)
   api/         FastAPI + static console
-  pipeline/    end-to-end orchestration
+  pipeline/    end-to-end orchestration; crosscheck vs 18 SDS public CDMs
   maneuver/    fleet LP
   risk/        Alfano / Chan Pc
   screening/   close approaches
   propagation/ SGP4 + TLE covariance
-  ingest/      CelesTrak vs gated synthetic
+  ingest/      CelesTrak / Space-Track vs gated synthetic
   ccsds/       CDM / OEM
   core/        domain types
   ui/          console HTML / CSS / JS / Earth texture

@@ -222,6 +222,33 @@ CELESTRAK_MAX_RETRIES = 3
 #: Identify the client so CelesTrak's maintainer can contact rather than block.
 CELESTRAK_USER_AGENT = "AEGIS-ConjunctionAssessment/1.0 (+research; contact via repository)"
 
+#: Space-Track's published API throttle is under 30 requests per minute and
+#: under 300 per hour per account; violations suspend the account. The client
+#: throttle sits below both so a burst of console reloads can never trip them.
+SPACETRACK_MAX_PER_MINUTE = 20
+SPACETRACK_MAX_PER_HOUR = 200
+
+#: Space-Track asks that GP data be pulled at most once per hour. Readers
+#: (the console) accept a cache up to two hours old; the scheduled refresh
+#: re-downloads once the cache passes 50 minutes, so it alone keeps the data
+#: fresh and nothing else downloads in the same hour.
+SPACETRACK_CACHE_TTL_S = 2 * 3600
+SPACETRACK_REFRESH_AGE_S = 50 * 60
+
+#: Retries per Space-Track request. Low on purpose: failed requests still
+#: count against the account throttle.
+SPACETRACK_MAX_RETRIES = 2
+
+#: Server-side LEO band for the Space-Track debris query, km. Deliberately
+#: wider than any Starlink shell; ``overlapping_debris`` then trims to the
+#: fleet's actual perigee/apogee window plus the band-check pad.
+SPACETRACK_DEBRIS_PERIGEE_MAX_KM = 1000.0
+SPACETRACK_DEBRIS_APOGEE_MIN_KM = 200.0
+
+#: GP element sets older than this many days are dropped server-side;
+#: SGP4 error growth makes them useless for a three-day screen.
+SPACETRACK_MAX_EPOCH_AGE_DAYS = 10
+
 
 # ---------------------------------------------------------------------------
 # Derived helpers
@@ -251,6 +278,9 @@ CELESTRAK_FLEET_GROUP = "starlink"
 #: CelesTrak GP ``NAME`` query for catalogued debris. There is no
 #: ``GROUP=debris``; ``NAME=DEB`` is the public debris dump.
 CELESTRAK_DEBRIS_NAME = "DEB"
+
+#: Space-Track ``OBJECT_NAME`` prefix for the test fleet.
+SPACETRACK_FLEET_PREFIX = "STARLINK"
 
 #: Convert TLE mean motion (revolutions per day) to radians per second.
 REV_PER_DAY_TO_RAD_PER_S = 2.0 * 3.141592653589793 / SECONDS_PER_DAY

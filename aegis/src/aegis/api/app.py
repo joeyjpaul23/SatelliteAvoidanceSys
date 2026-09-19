@@ -12,6 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from aegis import __version__
 from aegis.constants import CONSOLE_STEP_S, SCREENING_HORIZON_S
 from aegis.ingest.socrates import SocratesError, fetch_starlink_alerts
+from aegis.ingest.spacetrack import (
+    SpaceTrackClient,
+    SpaceTrackError,
+    credentials_from_env,
+)
+from aegis.pipeline.crosscheck import CrossCheckReport, run_crosscheck
 
 from .scene import build_scene
 
@@ -96,6 +102,52 @@ def starlink_alerts(
             "Maximum probability is a conservative SOCRATES metric, not AEGIS Alfano Pc.",
             "Candidates are public-data screening alerts, not flight-ready maneuver decisions.",
         ],
+    }
+
+
+_PUBLIC_CDM_HONESTY = [
+    "18 SDS values are the latest public CDM per event: special-perturbations orbits with real covariance.",
+    "AEGIS values are recomputed from Space-Track GP (TLE) elements with AEGIS's synthetic TLE covariance.",
+    "Public CDMs cover only emergency-reportable events, not a random sample of conjunctions.",
+]
+
+# One report per downloaded cdm_public snapshot; the cross-check is ~1 s of
+# screening, so recompute only when the hourly refresh brings a new feed.
+_crosscheck_memo: dict[str, CrossCheckReport] = {}
+
+
+def _crosscheck_report() -> CrossCheckReport:
+    client = SpaceTrackClient()
+    _events, fetched_at = client.fetch_public_conjunctions_with_time()
+    key = fetched_at.isoformat()
+    report = _crosscheck_memo.get(key)
+    if report is None:
+        report = run_crosscheck(client)
+        _crosscheck_memo.clear()
+        _crosscheck_memo[key] = report
+    return report
+
+
+@app.get("/api/public-cdms")
+def public_cdms() -> dict[str, object]:
+    """Space-Track public CDMs with AEGIS's independent result for each pair."""
+    if credentials_from_env() is None:
+        return {
+            "configured": False,
+            "summary": None,
+            "events": [],
+            "honesty": ["Space-Track is not configured: set SPACETRACK_USER and SPACETRACK_PASS."],
+        }
+    try:
+        report = _crosscheck_report()
+    except SpaceTrackError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {
+        "configured": True,
+        "source": "SPACETRACK_CDM_PUBLIC",
+        "summary": report.summary(),
+        "events": [check.as_dict() for check in report.checks],
+        "honesty": _PUBLIC_CDM_HONESTY,
     }
 
 

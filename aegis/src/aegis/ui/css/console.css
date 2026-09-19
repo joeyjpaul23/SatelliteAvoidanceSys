@@ -83,7 +83,8 @@ html, body {
 
 section { border-bottom: 1px solid var(--line); padding: 14px 16px; }
 
-section h2 {
+section h2,
+.events h2 {
   font-family: "IBM Plex Mono", monospace;
   font-size: 10px;
   letter-spacing: 0.16em;
@@ -136,6 +137,38 @@ section h2 {
 
 .events { flex: 1; overflow: auto; padding: 0; min-height: 80px; }
 .events h2 { padding: 14px 16px 8px; margin: 0; }
+
+.globe-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.validation-summary {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0 16px 8px;
+}
+#validation { min-height: 170px; }
+#validation th { white-space: nowrap; }
+#validation td { cursor: default; white-space: nowrap; }
+#validation th,
+#validation td { padding-left: 6px; padding-right: 6px; }
+#validation th:first-child,
+#validation td:first-child { padding-left: 16px; }
+#validation th:last-child,
+#validation td:last-child { padding-right: 16px; }
+#validation td.pair {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 table {
   width: 100%;

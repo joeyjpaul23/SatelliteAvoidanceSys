@@ -23,7 +23,7 @@ from ..core.conjunction import RiskLevel
 from ..core.state import CovarianceSource
 from ..core.timebase import ensure_utc, seconds_between, shift
 from ..ingest.ops import load_ops_catalog
-from ..ingest.sources import Catalog, DataSource
+from ..ingest.sources import Catalog
 from ..maneuver import plan_maneuvers
 from ..propagation import Sgp4Propagator, default_covariance_model
 from ..risk import assess_catalog
@@ -343,7 +343,7 @@ def build_scene(
         honesty.append(_HONESTY_NO_RISK)
 
     payload = {
-        "source": DataSource.CELESTRAK,
+        "source": catalog.source,
         "fallback": fallback,
         "covariance_source": covariance_source,
         "fetched_at": _iso(catalog.fetched_at),

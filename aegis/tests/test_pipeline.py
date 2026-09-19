@@ -281,7 +281,7 @@ def test_celestrak_rejects_synthetic_arguments(kwargs: dict) -> None:
         )
 
 
-@pytest.mark.parametrize("source", ["NORAD", "celestrak", "synthetic", "BOTH", "", "SPACETRACK"])
+@pytest.mark.parametrize("source", ["NORAD", "celestrak", "synthetic", "BOTH", "", "SPACE-TRACK"])
 def test_invalid_source_string_raises(source: str) -> None:
     catalog = _catalog(DataSource.CELESTRAK, [_celestrak_object("1")], query="invalid-source")
     with pytest.raises(PipelineError):

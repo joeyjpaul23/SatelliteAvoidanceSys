@@ -64,7 +64,7 @@ cd aegis
 PYTHONPATH=src python3 -m pytest tests -q
 ```
 
-Default catalog is live CelesTrak Starlink plus overlapping catalog debris, screened 3 days ahead. If a live fetch fails, the committed slices are used. Synthetic catalogs require both `AEGIS_ALLOW_SYNTHETIC=1` and an explicit acknowledge flag. There is no silent fallback to fake data.
+Default catalog is live Starlink plus overlapping catalog debris, screened 3 days ahead. With `SPACETRACK_USER` and `SPACETRACK_PASS` set, both halves come from Space-Track (throttled, cached hourly); otherwise, or if Space-Track fails, from CelesTrak. If the live fetch fails, the committed slices are used. Credentials load automatically from a gitignored `.env` at the repo root. `python -m aegis.ingest.spacetrack check` verifies them. `python -m aegis.pipeline.crosscheck` compares AEGIS against 18 SDS on Space-Track's public CDM feed; the console shows the same comparison in its VALIDATION panel. To run the console always-on on an Oracle Cloud Always Free VM, see [`deploy/oracle/README.md`](deploy/oracle/README.md). Synthetic catalogs require both `AEGIS_ALLOW_SYNTHETIC=1` and an explicit acknowledge flag. There is no silent fallback to fake data.
 
 Research benchmarks:
 

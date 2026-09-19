@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from ..envfile import load_env_file
 from ..ingest.sources import DataSource, SyntheticNotAuthorizedError
 from .config import PipelineConfig
 from .errors import PipelineError
@@ -29,13 +30,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        default=DataSource.CELESTRAK,
-        help="CELESTRAK (default) or SYNTHETIC; case-insensitive.",
+        default=None,
+        help=(
+            "SPACETRACK, CELESTRAK, or SYNTHETIC; case-insensitive. Default: "
+            "SPACETRACK when SPACETRACK_USER/SPACETRACK_PASS are set, else CELESTRAK."
+        ),
     )
     parser.add_argument(
         "--group",
         default="starlink",
-        help="CelesTrak GP group (CelesTrak path only; ignored with --tle-path).",
+        help="CelesTrak GP group, or Space-Track OBJECT_NAME prefix (ignored with --tle-path).",
     )
     parser.add_argument(
         "--tle-path",
@@ -102,7 +106,14 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns a process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
-    source = str(args.source).strip().upper()
+    load_env_file()
+    if args.source is None:
+        from ..ingest.spacetrack import credentials_from_env
+
+        has_credentials = credentials_from_env() is not None
+        source = DataSource.SPACETRACK if has_credentials else DataSource.CELESTRAK
+    else:
+        source = str(args.source).strip().upper()
     config = _config_from_args(args)
 
     if source == DataSource.SYNTHETIC:
@@ -136,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         _emit_summary(result, args.output)
         return 0
 
-    if source != DataSource.CELESTRAK:
+    if source not in (DataSource.CELESTRAK, DataSource.SPACETRACK):
         print(
             f"unsupported pipeline source: {args.source!r}",
             file=sys.stderr,
@@ -145,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = run_pipeline(
-            source=DataSource.CELESTRAK,
+            source=source,
             group=args.group,
             tle_path=args.tle_path,
             config=config,

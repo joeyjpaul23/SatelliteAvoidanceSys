@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uvicorn
 
+from ..envfile import load_env_file
 from .app import app
 
 
 def main() -> None:
+    load_env_file()
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
 

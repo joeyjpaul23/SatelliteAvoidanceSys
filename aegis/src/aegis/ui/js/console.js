@@ -19,7 +19,28 @@ const BAND_SHORT = {
   ACT: "ACT",
 };
 
-const globe = createGlobe(document.getElementById("globe"));
+// Without WebGL the globe cannot render. Keep every data panel working anyway.
+function createGlobeOrFallback(mount) {
+  try {
+    return createGlobe(mount);
+  } catch (error) {
+    mount.classList.add("globe-unavailable");
+    mount.textContent = "3D globe unavailable: this browser could not create a WebGL context.";
+    return {
+      setSceneData() {},
+      setTimeIndex() {},
+      setSelection() {},
+      projectLabel() {
+        return null;
+      },
+      set onSelect(_fn) {},
+      set onHover(_fn) {},
+      resize() {},
+    };
+  }
+}
+
+const globe = createGlobeOrFallback(document.getElementById("globe"));
 
 const els = {
   statusSource: document.getElementById("status-source"),
@@ -42,6 +63,8 @@ const els = {
   selectedKv: document.getElementById("selected-kv"),
   selectedFlags: document.getElementById("selected-flags"),
   eventsBody: document.getElementById("events-body"),
+  validationSummary: document.getElementById("validation-summary"),
+  validationBody: document.getElementById("validation-body"),
   objectsBody: document.getElementById("objects-body"),
   planKv: document.getElementById("plan-kv"),
   timeSlider: document.getElementById("time-slider"),
@@ -233,6 +256,59 @@ function renderEvents() {
   }
 }
 
+function cell(text, className) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+// Space-Track object names are external data: text nodes only, never innerHTML.
+function renderValidation(data) {
+  els.validationBody.innerHTML = "";
+  if (!data.configured) {
+    els.validationSummary.textContent = (data.honesty || []).join(" ");
+    return;
+  }
+  const s = data.summary;
+  const ratio = s.median_log10_pc_ratio;
+  const pcText = ratio === null ? "no Pc to compare" : `AEGIS Pc ${fmtNum(ratio, 1)} decades vs 18 SDS`;
+  els.validationSummary.textContent =
+    `${s.events} events · AEGIS found ${s.found} · median miss error ` +
+    `${fmtNum(s.median_abs_miss_error_km, 2)} km · ${pcText} · ` +
+    `dilution ${s.dilution_flagged}/${s.found}`;
+  els.validationSummary.title = (data.honesty || []).join("\n");
+  for (const e of data.events) {
+    const tr = document.createElement("tr");
+    const pair = `${e.object_name_1} / ${e.object_name_2}`;
+    const aegisMiss = e.aegis_found ? fmtNum(e.aegis_miss_km, 2) : "—";
+    tr.appendChild(cell(pair, "pair"));
+    tr.appendChild(cell(fmtPc(e.sds_pc)));
+    tr.appendChild(cell(fmtPc(e.aegis_pc), e.aegis_dilution ? "c-mon" : ""));
+    tr.appendChild(cell(`${fmtNum(e.sds_miss_km, 2)} / ${aegisMiss}`));
+    tr.title =
+      `${pair}\nTCA ${fmtIso(e.tca)} · ${e.cdm_rows} CDM rows` +
+      (e.aegis_found
+        ? `\nAEGIS TCA offset ${fmtNum(e.aegis_tca_offset_s, 1)} s · max Pc ${fmtPc(e.aegis_max_pc)}` +
+          (e.aegis_dilution ? " · dilution" : "")
+        : `\nAEGIS: ${e.reason}`);
+    els.validationBody.appendChild(tr);
+  }
+}
+
+async function loadValidation() {
+  try {
+    const response = await fetch("/api/public-cdms");
+    if (!response.ok) {
+      els.validationSummary.textContent = `Space-Track request failed (${response.status})`;
+      return;
+    }
+    renderValidation(await response.json());
+  } catch (error) {
+    els.validationSummary.textContent = `Space-Track request failed (${error})`;
+  }
+}
+
 function nearestTimeIndex(iso) {
   if (!scene?.times_s?.length || !scene.epoch || !iso) return 0;
   const dt = (Date.parse(iso) - Date.parse(scene.epoch)) / 1000;
@@ -402,3 +478,6 @@ els.objectSlider.addEventListener("input", () => {
 });
 
 loadScene(Number(els.objectSlider.value) || 40);
+loadValidation();
+// The feed refreshes hourly; re-read the server's copy every 15 minutes.
+window.setInterval(loadValidation, 15 * 60 * 1000);

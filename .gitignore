@@ -20,3 +20,7 @@ aegis/artifacts/
 # C++ build tree: compiled binaries plus a CMake cache holding absolute paths
 # from whatever directory the project happened to live in when it was built.
 orbitlab/build/
+
+# Local secrets (Space-Track credentials etc.). Never commit.
+.env
+.env.*

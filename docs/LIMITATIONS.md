@@ -21,6 +21,17 @@ Collision probabilities computed from TLE-grade ephemeris and synthetic
 covariance are not operator-grade Conjunction Data Message quality. They are
 a screening and research signal, not a replacement for owner/operator CDMs.
 
+This gap is now measured, not just stated. `python -m aegis.pipeline.crosscheck`
+(and the console's VALIDATION panel) re-screens every event in Space-Track's
+public CDM feed from GP elements and compares AEGIS with 18 SDS. On the first
+live run (2026-09-18: 35 events from 142 CDM rows), the geometry agreed well:
+AEGIS found every event, with a median TCA offset of 0.1 s and a median
+miss-distance error of 0.49 km. The Pc did not agree: AEGIS was a median 10^2.3
+(about 200x) below 18 SDS. AEGIS flagged covariance dilution on all 35 events,
+and its worst-case Pc reached the 18 SDS value on only 3 of 31. A half-kilometre
+TLE miss error is as large as the misses being assessed. The VM archives every
+check hourly, so these numbers become a growing dataset rather than a snapshot.
+
 ## 4. The maneuver plan is not flight commands
 
 The maneuver plan is a prototype / research output. It is not a set of flight

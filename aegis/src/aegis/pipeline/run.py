@@ -40,7 +40,7 @@ def _normalize_source(source: str) -> str:
     if source not in DataSource.ALL:
         raise PipelineError(
             f"unsupported pipeline source: {source!r} "
-            f"(allowed: {DataSource.CELESTRAK}, {DataSource.SYNTHETIC})"
+            f"(allowed: {', '.join(DataSource.ALL)})"
         )
     return source
 
@@ -87,6 +87,16 @@ def _ingest_celestrak(group: str, session, cache_dir) -> Catalog:
         raise PipelineError(f"CelesTrak ingest failed: {error}") from error
 
 
+def _ingest_spacetrack(group: str, session, cache_dir) -> Catalog:
+    from ..ingest.spacetrack import SpaceTrackClient
+
+    try:
+        client = SpaceTrackClient(session=session, cache_dir=cache_dir)
+        return client.fetch_fleet(group)
+    except Exception as error:
+        raise PipelineError(f"Space-Track ingest failed: {error}") from error
+
+
 def _ingest_tle_file(path: str | Path) -> Catalog:
     from ..ingest.celestrak import catalog_from_tle_file
 
@@ -128,18 +138,21 @@ def run_pipeline(
     synthetic generator, never constructs a synthetic authorization or
     spec, and never consults ``AEGIS_ALLOW_SYNTHETIC``. A CelesTrak
     failure raises :class:`PipelineError` and does not fall back to a
-    generated catalog.
+    generated catalog. ``source=SPACETRACK`` is held to the same rules;
+    there ``group`` is an ``OBJECT_NAME`` prefix (``starlink`` matches
+    ``STARLINK-*``).
 
     When ``tle_path`` is set, the catalog is read from that local TLE
     file (no HTTP) and ``group`` is ignored. ``tle_path`` is illegal
     with ``source=SYNTHETIC``.
     """
     source = _normalize_source(source)
-    if source == DataSource.CELESTRAK and (
+    if source != DataSource.SYNTHETIC and (
         authorization is not None or synthetic_spec is not None
     ):
+        label = "CelesTrak" if source == DataSource.CELESTRAK else "Space-Track"
         raise PipelineError(
-            "authorization and synthetic_spec are illegal on the CelesTrak path"
+            f"authorization and synthetic_spec are illegal on the {label} path"
         )
     if tle_path is not None and source != DataSource.CELESTRAK:
         raise PipelineError("tle_path requires source CELESTRAK")
@@ -156,6 +169,8 @@ def run_pipeline(
         catalog = _ingest_tle_file(tle_path)
     elif source == DataSource.CELESTRAK:
         catalog = _ingest_celestrak(group, session, cache_dir)
+    elif source == DataSource.SPACETRACK:
+        catalog = _ingest_spacetrack(group, session, cache_dir)
     else:
         catalog = _ingest_synthetic(authorization, synthetic_spec)
 
