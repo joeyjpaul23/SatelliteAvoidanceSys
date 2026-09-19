@@ -5,8 +5,8 @@
 #
 #   deploy/oracle/push.sh <host> [ssh-user]      # ssh-user defaults to ubuntu
 #
-# Uses rsync over ssh (not git clone: the working branch is unpushed and the
-# repo is public). Files land root-owned under /opt/aegis/app. If the services
+# Uses rsync over ssh rather than git clone, so the VM runs exactly the local
+# tree, uncommitted work included. Files land root-owned under /opt/aegis/app. If the services
 # are already installed, it re-runs setup.sh, which reinstalls the package and
 # restarts the console. On a fresh VM it prints the setup command to run.
 set -euo pipefail

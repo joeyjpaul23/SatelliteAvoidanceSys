@@ -1,5 +1,9 @@
 # Step 14 contract: certified fleet maneuver optimization (AEGIS-FO)
 
+> **Status (2026-09-19):** implemented, but a review found the certificate
+> does not yet enforce everything this contract requires. Section 12 of
+> `docs/LIMITATIONS.md` lists the gaps.
+
 Tester writes tests from this document. **Builder must not edit `tests/`.**
 This contract introduces four new subpackages and does not modify the
 semantics of any existing module. `aegis.maneuver.plan_maneuvers` stays
@@ -195,7 +199,7 @@ m_j(x) = || P_j ( d_j + B_j x ) ||  +  O(||displacement||^2)
 Tester requirement (this is the headline physics check): construct a
 two-satellite along-track conjunction, choose a `dv`, and compare
 `m_j(x)` against the **SGP4 ground truth** obtained by
-`apply_plan` + `screen`. Relative error must be below 15 % for
+`apply_fleet_burns` + `screen`. Relative error must be below 15 % for
 displacements up to 5 km and below 5 % for displacements up to 1 km.
 
 **Proposition 2 (conservative affine restriction).** For any unit `u`,
@@ -636,7 +640,9 @@ empty plan without raising. Every planner except `pignn-direct` must
 produce a `Certificate` with `linearized_safe is True` whenever it reports
 all conjunctions resolved.
 
-### 11.3 `apply_plan(objects, fleet_plan, assessed) -> list[SpaceObject]`
+### 11.3 `apply_fleet_burns(objects, plan, *, canonicalize=True) -> (list[SpaceObject], ApplyReport)`
+
+In `aegis.fleetopt.apply` (planned as `apply_plan`).
 
 Generalizes `aegis.maneuver.rescreen.apply_along_track_burns` to
 three-axis burns. The along-track component maps to the same mean-anomaly
@@ -917,8 +923,9 @@ machine-readable JSON and a human-readable markdown summary.
 
 ### 16.4 Validation suite
 
-`validate_linearization(scenario, plan)` applies the plan with
-`apply_plan`, re-screens with SGP4, and compares the predicted
+`aegis.experiments.metrics.measure_linearization(objects, plan,
+context_sensitivities)` (planned as `validate_linearization`) applies the
+plan with `apply_fleet_burns`, re-screens with SGP4, and compares the predicted
 post-maneuver miss distance against the measured one for every resolve
 row. Reports the error distribution. **A research claim about the
 optimizer is only reported alongside this number.**

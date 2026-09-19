@@ -19,7 +19,10 @@ outer re-screening loop — generate the ephemeris, resubmit, repeat — which c
 discover an induced conjunction but cannot prevent one.
 
 AEGIS puts the condition inside the optimizer, and proves the constraint set
-is complete.
+is complete. **Caveat (2026-09-19):** a pre-push review found gaps between that
+claim and the code — a plan can be reported as certified safe while violating a
+constraint that thinning dropped. See section 12 of `docs/LIMITATIONS.md`. The
+screening, risk and console paths are not affected.
 
 ```
 aegis/      Python package, tests, step contracts, operations console
@@ -74,7 +77,7 @@ acknowledge flag. There is no silent fallback to fake data.
 
 | Source | Used when | What it provides |
 |---|---|---|
-| Space-Track.org | `SPACETRACK_USER` / `SPACETRACK_PASS` are set | GP elements for Starlink and LEO debris, plus the public CDM feed. Requests stay under the API limits and are cached for an hour. |
+| Space-Track.org | `SPACETRACK_USER` / `SPACETRACK_PASS` are set | GP elements for Starlink and LEO debris, plus the public CDM feed. Requests stay under the API limits and are cached for up to two hours; the hourly refresh keeps the cache under one. |
 | CelesTrak | No credentials, or Space-Track fails | GP elements and the SOCRATES candidate feed |
 | Committed TLE slices | Both live sources fail | `aegis/tests/fixtures/` |
 

@@ -94,7 +94,8 @@ way:
 
 The certificate is evaluated on the closed row set and against the true
 non-linear constraint, so a plan the optimizer could not make safe is reported
-as unsafe. It certifies the plan against the **linear dynamics model**, never
+as unsafe. **A 2026-09-19 review found cases where that is not what the code
+does; see section 12 before using any of these numbers.** It certifies the plan against the **linear dynamics model**, never
 against SGP4; the SGP4 re-screen is a separate, empirical measurement, and the
 two numbers are always reported together.
 
@@ -138,3 +139,32 @@ reported TCA is one of several near-equal minima and can move with the grid
 step. Most such pairs in the catalog are Starlink–Starlink crossings at about
 400 m/s, which is still well above breakup energy. They are intra-fleet events,
 not formation flight, and remain risks.
+
+## 12. The fleet optimizer's certificate has known gaps (found 2026-09-19)
+
+A pre-push review (two independent Claude reviewers and Codex, each
+reproducing its own findings) showed that `certified_safe=True` does **not**
+currently mean what sections 7 and 11.x of `aegis/specs/step14_fleet_optimization.md`
+say it means. Until these are fixed, treat every number from
+`aegis.experiments` and from `paper/` as provisional. Nothing here touches the
+screening, risk or console path: `aegis.fleetopt` is research code and the
+console plans with `aegis.maneuver`.
+
+| # | Gap | Where |
+|---|---|---|
+| 1 | Rows dropped when the latent set is thinned (on by default, 2,000–4,000 rows) are never re-checked, and the verifier never sees them. Reproduced: induced-cascade seed 8 certified safe while violating a dropped pair by 1.1 km and 3.2 km. | `fleetopt/latent.py` (`thin_constraints`) |
+| 2 | A pair admitted but holding no row gets a floor of 0 km, so the perturbed-minimum search can never flag it. Reproduced: 2 minima below floor on a plan certified safe, one at 0.495 km. | `fleetopt/latent.py` (`perturbed_minimum_epochs`), `fleetopt/planners.py` (`build_context`) |
+| 3 | `pignn-warm-start` runs one `sequential_solve`, skipping the two-stage polish and the rows added at perturbed minima, then certifies against the un-closed set. Reproduced: an induced minimum inside the floor on 6 of 8 seeds, all reported safe. | `fleetopt/planners.py` |
+| 4 | `pignn-active-set` verifies against the problem as it stood *before* the row set closed, so rows added by polishing are not certified. | `fleetopt/planners.py` |
+| 5 | A latent row whose violation is absorbed as slack is not counted as a violation, so a plan that deliberately induces a conjunction can still report `linearized_safe=True`. | `fleetopt/certify.py` (`verify_plan`) |
+| 6 | The benchmark never checks solver status. A failed solve becomes a no-burn plan and a defined −100 % premium instead of an error. | `experiments/runner.py` |
+| 7 | "Not measured" is stored as "0 induced", which is also how the headline zero is produced when measurement fails. | `experiments/runner.py`, `store/db.py` |
+| 8 | `legacy-lp` burns are snapped to the fleetopt grid (measured: up to 3.5 orbits), so its measured induced count is not a measurement of the legacy planner. | `fleetopt/planners.py` |
+
+Also found, and equally unfixed: the MILP charges `ops_cost_per_burn` once per
+manoeuvring satellite rather than once per burn (`fleetopt/problem.py`); the
+SGP4 "truth" miss in `experiments/metrics.py` is a 3 s sampled minimum with no
+refinement, which overstated one linearisation error by about 70×; the
+`debris-shower` scenario family ignores its seed, so 44 identical scenarios run
+as if distinct; and `star` / `chain` scenarios place most designed crossings
+after the screening window.

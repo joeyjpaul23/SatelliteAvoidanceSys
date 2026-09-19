@@ -23,7 +23,7 @@ cmake --build orbitlab/build --target generate
 ctest --test-dir orbitlab/build --output-on-failure
 ```
 
-The generator writes `web/telemetry.js`. Serve the instrument from the repository root:
+The generator writes `web/telemetry.js`. A generated copy is committed so the viewer works without a C++ build; regenerating it changes the file. Serve the instrument from the repository root:
 
 ```bash
 python3 -m http.server 8080 --directory orbitlab/web

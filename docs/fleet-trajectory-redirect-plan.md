@@ -1,5 +1,10 @@
 # Project Redirect: Fleet-Wide, Fuel-Optimal Trajectory Coordination
 
+> **Note (2026-09-19):** `archive/`, `docs/kessler-report-and-integration-plan.md`
+> and `docs/PINN-GNN_Satellite_Conjunction_Thesis.pdf` were removed from the
+> working tree in the repo cleanup. They are still in history, for example
+> `git show b3c52fe:archive/kelvins-agent-b/CONTRACT.md`.
+
 Written 2026-08-27. Captures the pivot from "predict collision risk for one conjunction event"
 (the Kelvins benchmark work now in `archive/kelvins-agent-b/`) toward "given risk data across a whole constellation,
 compute the fuel-optimal set of trajectory adjustments for the fleet." This doc is the plan, not

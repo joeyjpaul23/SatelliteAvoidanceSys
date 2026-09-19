@@ -1,5 +1,11 @@
 # Whitepaper source
 
+> **Under revision (2026-09-19).** A review found that the certificate the
+> paper's claims rest on can pass a plan that violates a dropped constraint,
+> and that unmeasured induced counts were recorded as zero. The headline
+> numbers in `results-premium.tex` and `results-accel.tex` have to be
+> re-measured after the fixes. See section 12 of `../docs/LIMITATIONS.md`.
+
 `aegis-certified-fleet-cam.tex` plus two generated results includes.
 
 ```bash
@@ -17,7 +23,7 @@ Every number in `results-premium.tex` and `results-accel.tex` is reproducible:
 cd ../aegis
 export AEGIS_ALLOW_SYNTHETIC=1
 PYTHONPATH=src python3 -m aegis.experiments benchmark --acknowledge-synthetic \
-    --family induced-cascade --seeds 80 --output /tmp/headline
+    --family induced-cascade --seeds 80 --budget-mm-s 2000 --output /tmp/headline
 PYTHONPATH=src python3 -m aegis.experiments frontier --acknowledge-synthetic \
     --family induced-cascade --seed 8
 ```

@@ -5,7 +5,7 @@ This bundle sets up a single Ampere A1 VM running two things:
 - **The console:** `python -m aegis.api`, running as a service on `127.0.0.1:8000`. No port other than SSH is open, and you reach the console through an SSH tunnel. It is never exposed publicly, which also sidesteps the question of whether Space-Track's terms allow redistributing its data.
 - **An hourly refresh:** `python -m aegis.ingest.spacetrack refresh`, then `python -m aegis.pipeline.crosscheck --archive`. A timer runs it every hour at a random time between :17 and :22; Space-Track asks clients to stay off :00 and :30. The cross-check appends each new public CDM, with AEGIS's prediction beside it, to `/var/lib/aegis/aegis/crosscheck/cdm_public.jsonl`. Over time that file becomes the validation dataset.
 
-Code is copied from your laptop with rsync, not cloned from git. The working branch hasn't been pushed, and the GitHub repo is public.
+Code is copied from your laptop with rsync, not cloned from git, so the VM runs exactly what is on your laptop, including uncommitted work. The env file with your credentials is never part of the copy.
 
 | File | Where it goes on the VM | Purpose |
 |---|---|---|

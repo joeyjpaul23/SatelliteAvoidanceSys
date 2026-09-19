@@ -1,5 +1,11 @@
 # Session report — 2026-09-12
 
+> **Later finding (2026-09-19).** The measurements below were taken with a
+> certificate and a benchmark that have since been shown to have gaps: see
+> section 12 of `LIMITATIONS.md`. The "zero measured induced" result in
+> particular can also be produced by a failed measurement. Re-measure before
+> relying on any number here.
+
 What was built, what was measured, what was wrong on the first attempt, and
 what is still open. Written so that someone who was not here can check every
 claim.
