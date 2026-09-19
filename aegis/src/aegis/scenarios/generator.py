@@ -189,10 +189,6 @@ def _rotation_matrix(inclination_deg: float, raan_deg: float) -> np.ndarray:
     return rz @ rx
 
 
-def _plane_normal(inclination_deg: float, raan_deg: float) -> np.ndarray:
-    return _rotation_matrix(inclination_deg, raan_deg) @ np.array([0.0, 0.0, 1.0])
-
-
 def _argument_of_latitude_rad(rotation: np.ndarray, direction: np.ndarray) -> float:
     """Angle ``u`` such that ``rotation @ (cos u, sin u, 0)`` is parallel to ``direction``.
 

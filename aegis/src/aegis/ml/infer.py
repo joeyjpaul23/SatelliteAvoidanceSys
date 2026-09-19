@@ -30,6 +30,7 @@ make the comparison meaningless.
 from __future__ import annotations
 
 import io
+import pickle
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,8 +76,11 @@ def load_hints_provider(
     if not path.exists():
         return None
     try:
-        payload = torch.load(io.BytesIO(path.read_bytes()), weights_only=False)
-    except (OSError, RuntimeError, EOFError):
+        # weights_only: a checkpoint is data, never code (full unpickling of
+        # a downloaded .pt can run arbitrary Python). train() saves only
+        # tensors, dicts, lists, strings and floats.
+        payload = torch.load(io.BytesIO(path.read_bytes()), weights_only=True)
+    except (OSError, RuntimeError, EOFError, pickle.UnpicklingError):
         return None
 
     config = ModelConfig.from_json(payload["config"])

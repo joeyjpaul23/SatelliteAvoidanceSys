@@ -48,8 +48,8 @@ class PropagationGrid:
     """Positions and velocities for many objects across a shared time grid.
 
     A single dense array rather than per-object ephemeris objects, because
-    the screening broad phase wants to slice *all objects at one epoch* --
-    the opposite of the access pattern per-object storage optimises for.
+    consumers want *all objects at one epoch* -- the opposite of the access
+    pattern per-object storage optimises for.
 
     Attributes
     ----------
@@ -86,18 +86,6 @@ class PropagationGrid:
 
     def epoch_at(self, time_index: int) -> datetime:
         return shift(self.reference_epoch, float(self.times_s[time_index]))
-
-    def slice_epoch(self, time_index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """All objects' states at one epoch.
-
-        Returns ``(positions, velocities, valid_mask)`` with shapes
-        ``(n_objects, 3)``, ``(n_objects, 3)``, ``(n_objects,)``.
-        """
-        return (
-            self.positions_km[:, time_index, :],
-            self.velocities_km_s[:, time_index, :],
-            self.valid[:, time_index],
-        )
 
     def state(self, object_index: int, time_index: int) -> StateVector:
         """One object at one epoch, as a :class:`StateVector`."""

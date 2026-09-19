@@ -18,7 +18,6 @@ from .artifacts import (
     validate_key,
 )
 from .config import StoreConfig
-from .datasets import DatasetManifest, DatasetReader, DatasetWriter, ShardInfo
 from .db import ExperimentStore
 from .errors import ArtifactKeyError, StoreError, StoreUnavailableError
 
@@ -40,3 +39,15 @@ __all__ = [
     "DatasetManifest",
     "ShardInfo",
 ]
+
+_DATASET_NAMES = {"DatasetManifest", "DatasetReader", "DatasetWriter", "ShardInfo"}
+
+
+def __getattr__(name: str):
+    # The dataset layer needs pyarrow (the `research` extra); import it only
+    # when used, so experiments and the ledger run on a base install.
+    if name in _DATASET_NAMES:
+        from . import datasets
+
+        return getattr(datasets, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
