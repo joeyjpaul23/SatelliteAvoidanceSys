@@ -6,6 +6,7 @@
 |---|---|
 | `LIMITATIONS.md` | Honesty page: TLE covariance, no silent synthetic, not flight commands |
 | `alfano-cara-check.md` | Pc method cross-check notes |
+| `screening-engine-and-live-data-report.md` | Space-Track ingest, the full-catalog screening rebuild, the screening-box study, measured TLE uncertainty and SOCRATES coverage, 2026-09-19 |
 | `starlink-full-catalog-screening-report.md` | SOCRATES Starlink feed ingestion, 2026-09-10; predates Space-Track ingest and the screening rebuild |
 
 ## Research

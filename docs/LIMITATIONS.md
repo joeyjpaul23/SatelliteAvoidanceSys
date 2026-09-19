@@ -28,7 +28,9 @@ live run (2026-09-18: 35 events from 142 CDM rows), the geometry agreed well:
 AEGIS found every event, with a median TCA offset of 0.1 s and a median
 miss-distance error of 0.49 km. The Pc did not agree: AEGIS was a median 10^2.3
 (about 200x) below 18 SDS. AEGIS flagged covariance dilution on all 35 events,
-and its worst-case Pc reached the 18 SDS value on only 3 of 31. A half-kilometre
+and even the "worst-case" Pc reached the 18 SDS value on only 3 of 31, though that
+worst case assumes round covariance and understates the true ceiling (section 9).
+A half-kilometre
 TLE miss error is as large as the misses being assessed. The VM archives every
 check hourly, so these numbers become a growing dataset rather than a snapshot.
 
@@ -44,11 +46,12 @@ Generated catalogs require `AEGIS_ALLOW_SYNTHETIC=1` plus an explicit
 authorization. That path is opt-in. Synthetic objects must not be confused
 with CelesTrak data.
 
-## 6. CelesTrak failure is not a silent fallback
+## 6. Live-data failure is not a silent fallback
 
-If CelesTrak ingest fails, the pipeline raises. It does **not** silently
-become synthetic data. A refused or failed live fetch never substitutes a
-generated catalog.
+If Space-Track or CelesTrak ingest fails, the pipeline raises. It does **not**
+silently become synthetic data. A refused or failed live fetch never
+substitutes a generated catalog. The ops catalog falls back from Space-Track
+to CelesTrak to the committed CelesTrak slices, and reports which one it used.
 
 ## 7. "Zero induced conjunctions" is a measurement, and it has conditions
 
@@ -94,3 +97,44 @@ non-linear constraint, so a plan the optimizer could not make safe is reported
 as unsafe. It certifies the plan against the **linear dynamics model**, never
 against SGP4; the SGP4 re-screen is a separate, empirical measurement, and the
 two numbers are always reported together.
+
+## 8. Starlink positions are the dominant uncertainty, and the covariance model is not calibrated to it
+
+Measured on Space-Track element-set history, predicting from an older element
+set to a newer one:
+
+| Horizon | Starlink along-track error, median | Debris along-track error, median |
+|---|---|---|
+| 1 day | 11 km | 0.5 km |
+| 3 days | 69 km (90th percentile 1,667 km) | 2 km |
+
+Starlinks manoeuvre often, and TLEs cannot know a future burn. A Starlink
+conjunction predicted more than about a day ahead is low-confidence whatever
+the screening does. AEGIS's `TleCovarianceModel` does not reflect this yet: it
+is about 7x too small along-track for Starlink and about 10x too large for
+debris. See `docs/screening-engine-and-live-data-report.md` section 5.
+
+## 9. The "worst-case" Pc is not a ceiling
+
+`RiskAssessment.max_probability` is `R^2 / (e d^2)`, the maximum over
+covariance scale for a *round* covariance. TLE covariances are elongated, 20
+to 100 times longer along-track than radially. Their actual Pc can exceed that
+number by 10 to 30 times. Treat it as a round-covariance reference, not a
+bound, until it is replaced.
+
+## 10. The ops catalog does not yet hold every object near Starlink
+
+The console's catalog is Starlink plus non-payload LEO debris. About 47% of
+CelesTrak SOCRATES Starlink events involve other operators' satellites, which
+it does not load. With every object crossing the band (16,091 objects), AEGIS
+reproduces 80% of SOCRATES Starlink events. Most of the rest are element-set
+differences; neither side is ground truth.
+
+## 11. Slow and co-orbiting pairs
+
+Below 0.5 km/s the 2D Pc short-encounter assumption weakens. Conjunctions
+there are flagged `low_relative_velocity`, and for co-orbiting pairs the
+reported TCA is one of several near-equal minima and can move with the grid
+step. Most such pairs in the catalog are Starlink–Starlink crossings at about
+400 m/s, which is still well above breakup energy. They are intra-fleet events,
+not formation flight, and remain risks.

@@ -67,7 +67,64 @@ cd aegis
 PYTHONPATH=src python3 -m pytest tests -q
 ```
 
-Default catalog is live Starlink plus overlapping catalog debris, screened 3 days ahead. With `SPACETRACK_USER` and `SPACETRACK_PASS` set, both halves come from Space-Track (throttled, cached hourly); otherwise, or if Space-Track fails, from CelesTrak. If the live fetch fails, the committed slices are used. Credentials load automatically from a gitignored `.env` at the repo root. `python -m aegis.ingest.spacetrack check` verifies them. `python -m aegis.pipeline.crosscheck` compares AEGIS against 18 SDS on Space-Track's public CDM feed; the console shows the same comparison in its VALIDATION panel. To run the console always-on on an Oracle Cloud Always Free VM, see [`deploy/oracle/README.md`](deploy/oracle/README.md). Synthetic catalogs require both `AEGIS_ALLOW_SYNTHETIC=1` and an explicit acknowledge flag. There is no silent fallback to fake data.
+Synthetic catalogs require both `AEGIS_ALLOW_SYNTHETIC=1` and an explicit
+acknowledge flag. There is no silent fallback to fake data.
+
+## Live data
+
+| Source | Used when | What it provides |
+|---|---|---|
+| Space-Track.org | `SPACETRACK_USER` / `SPACETRACK_PASS` are set | GP elements for Starlink and LEO debris, plus the public CDM feed. Requests stay under the API limits and are cached for an hour. |
+| CelesTrak | No credentials, or Space-Track fails | GP elements and the SOCRATES candidate feed |
+| Committed TLE slices | Both live sources fail | `aegis/tests/fixtures/` |
+
+Credentials load from a gitignored `.env` at the repo root:
+
+```bash
+cd aegis
+PYTHONPATH=src python3 -m aegis.ingest.spacetrack check   # log in, count the fleet and upcoming public CDMs
+PYTHONPATH=src python3 -m aegis.pipeline.crosscheck       # AEGIS vs 18 SDS on every upcoming public CDM
+```
+
+The console shows the same cross-check in its VALIDATION panel.
+
+## Full-catalog screening
+
+`aegis.screening.screen()` returns `Conjunction` objects. `screen_table()`
+returns the same results as numpy columns, for catalog scale. Measured on this
+laptop, using the Starlink screening box:
+
+| Catalog | Window | 11 cores | 1 core |
+|---|---|---|---|
+| Starlink + every object crossing its altitudes (16,091) | 24 h | 42 s | — |
+| Starlink + LEO debris (14,067) | 3 days | ~100 s | ~26 min, 1.5 GB |
+
+The previous engine could not finish a 3-day screen of the fleet.
+
+Close approaches use SpaceX Space Safety's screening box, which is the
+18/19 SDS Early Orbit volume:
+
+- **Size:** 2 km radial, 44 km along-track, 51 km out of plane.
+- **Frame:** each object's own RTN frame, so the box turns with the orbit.
+- **Direction:** checked from both objects.
+- **Acceptance:** a pass counts when its closest approach falls inside the box.
+
+Results do not depend on the grid step. The detection gate was validated
+with no false negatives against 0.5 s propagation. With every object in the
+band loaded, AEGIS reproduces 80% of CelesTrak SOCRATES's Starlink events.
+Nearly all of the rest are differences between element sets.
+
+[`docs/screening-engine-and-live-data-report.md`](docs/screening-engine-and-live-data-report.md)
+has the evidence and the box study (where risk actually lives). It also has
+the measured uncertainty: Starlink's own manoeuvres dominate it, at a
+median 11 km along-track one day ahead.
+
+## Always-on hosting
+
+[`deploy/oracle/`](deploy/oracle/README.md) runs the console and an hourly
+Space-Track refresh on an Oracle Cloud Always Free VM. It includes a script
+that creates the VM and retries until Arm capacity frees up. The console is
+reached over an SSH tunnel, with no public port.
 
 Research benchmarks:
 
