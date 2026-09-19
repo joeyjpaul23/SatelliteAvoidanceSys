@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 from aegis.constants import SCREENING_HORIZON_S
@@ -78,3 +79,12 @@ def test_live_ops_uses_six_digit_safe_omm_json(monkeypatch) -> None:
     assert len(catalog) == 8
     assert len(calls) == 2
     assert all(call.get("fmt") == "json" for call in calls)
+
+
+def test_screening_starts_at_the_newest_epoch_not_the_oldest_debris() -> None:
+    # Debris element sets can be days older than the fleet's; starting at the
+    # oldest would put most of a 3-day window in the past.
+    catalog, _fallback = load_ops_catalog(live=False, max_objects=40)
+    epochs = [obj.elements.epoch for obj in catalog if obj.elements is not None]
+    assert max(epochs) - min(epochs) > timedelta(days=1)
+    assert catalog.screening_start() == max(epochs)

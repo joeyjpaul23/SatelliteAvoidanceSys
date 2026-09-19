@@ -36,8 +36,9 @@ screen(
   `aegis.ingest.MixedDataSourceError` (import the existing exception).
 - Propagates with `Sgp4Propagator` (existing) unless a propagator is passed.
 - Returns zero or more `Conjunction` objects for pairs that enter the RTN
-  screening box during the window. An approach is kept when its TCA lies
-  inside the box or a grid sample of it entered the box.
+  screening box during the window. An approach is kept when its refined TCA
+  lies inside the window and inside either object's box, so the grid step
+  can't change the answer.
 - A pair that leaves the box and comes back gets one conjunction per
   approach.
 - Each conjunction has: both objects, TCA, miss distance, relative speed,

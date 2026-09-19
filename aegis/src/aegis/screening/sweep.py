@@ -109,7 +109,6 @@ class Seeds:
     index_a: np.ndarray
     index_b: np.ndarray
     sample: np.ndarray
-    range_km: np.ndarray
     entered: np.ndarray
     possible: np.ndarray
 
@@ -119,7 +118,7 @@ class Seeds:
 
 def _no_seeds() -> Seeds:
     empty = np.empty(0, dtype=np.int64)
-    return Seeds(empty, empty, empty, np.empty(0), np.empty(0, dtype=bool), np.empty(0, dtype=bool))
+    return Seeds(empty, empty, empty, np.empty(0, dtype=bool), np.empty(0, dtype=bool))
 
 
 def parallel_workers(requested: int | None = None) -> int:
@@ -177,6 +176,7 @@ def _primary_keys(objects: list[SpaceObject]) -> tuple[np.ndarray, np.ndarray]:
 class _SweepSpec:
     start: datetime
     step_s: float
+    duration_s: float
     n_samples: int
     box_km: tuple[float, float, float]
     pad_km: float
@@ -264,9 +264,10 @@ def _gate_interval(spec: _SweepSpec, dt: float, pos0, vel0, ok0, pos1, vel1, ok1
     i, j = _candidates(pos0, ok0 & spec.in_request, radius, spec.use_tree)
     if i.size == 0:
         return None
-    band_ok = (spec.perigee[i] - spec.pad_km <= spec.apogee[j] + spec.pad_km) & (
-        spec.perigee[j] - spec.pad_km <= spec.apogee[i] + spec.pad_km
-    )
+    # Two element sets for one object ID (a TLE history) are never a pair.
+    band_ok = (spec.id_rank[i] != spec.id_rank[j]) & (
+        spec.perigee[i] - spec.pad_km <= spec.apogee[j] + spec.pad_km
+    ) & (spec.perigee[j] - spec.pad_km <= spec.apogee[i] + spec.pad_km)
     i, j = i[band_ok], j[band_ok]
     if i.size == 0:
         return None
@@ -441,7 +442,6 @@ def _stitch(parts: list[_Events], n_objects: int) -> Seeds:
         index_a=cat["index_a"][pick],
         index_b=cat["index_b"][pick],
         sample=cat["best"][pick],
-        range_km=cat["best_range"][pick],
         entered=entered,
         possible=possible,
     )
@@ -513,7 +513,6 @@ def _split(events: _Events | None) -> tuple[Seeds, _Events | None]:
         index_a=events.index_a[closed],
         index_b=events.index_b[closed],
         sample=events.best[closed],
-        range_km=events.best_range[closed],
         entered=events.entered[closed],
         possible=events.possible[closed],
     )
@@ -574,10 +573,14 @@ def make_spec(
         in_request = np.ones(len(objects), dtype=bool)
     else:
         in_request = np.array([obj.object_id in requested_ids for obj in objects], dtype=bool)
+    # The last sample lands at or just past the window's end, so an approach in
+    # a final partial step is still swept; acceptance drops TCAs past the end.
+    n_steps = int(np.ceil(duration_s / step_s - 1e-9)) if duration_s > 0.0 else 0
     return _SweepSpec(
         start=start,
         step_s=float(step_s),
-        n_samples=int(np.floor(duration_s / step_s)) + 1,
+        duration_s=float(duration_s),
+        n_samples=n_steps + 1,
         box_km=tuple(float(v) for v in box_km),
         pad_km=float(pad_km),
         use_tree=use_tree,

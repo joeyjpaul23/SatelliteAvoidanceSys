@@ -27,6 +27,7 @@ from datetime import datetime
 
 import numpy as np
 
+from ..constants import LOW_RELATIVE_VELOCITY_KM_S
 from ..core.conjunction import Conjunction
 from ..core.objects import SpaceObject
 from ..core.state import StateVector
@@ -109,8 +110,18 @@ def _primary_first(spec, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (man_a & ~man_b) | ((man_a == man_b) & (spec.id_rank[a] <= spec.id_rank[b]))
 
 
+# Refined TCAs this far outside the window still count as inside it.
+_WINDOW_EDGE_S = 1.0e-3
+
+
 def accept(propagator: Sgp4Propagator, spec, index_a, index_b, sample) -> Rows:
-    """Refine every seed; keep the approaches whose TCA lies inside either object's box."""
+    """Refine every seed; keep the approaches whose TCA lies inside either object's
+    box and inside the window.
+
+    A slow pair (below ``LOW_RELATIVE_VELOCITY_KM_S``) is kept even when its
+    refined TCA falls outside the window: its range barely changes, so the
+    minimum is ill-defined and the pair is close throughout.
+    """
     parts = [
         _accept_chunk(
             propagator,
@@ -154,7 +165,9 @@ def _accept_chunk(propagator: Sgp4Propagator, spec, a, b, sample) -> Rows:
     s_pos = np.where(a_first[:, None], pos_b, pos_a)
     s_vel = np.where(a_first[:, None], vel_b, vel_a)
     in_p, in_s, rel_rtn, rel_vel_rtn = box_membership(p_pos, p_vel, s_pos, s_vel, spec.box_km)
-    keep = in_p | in_s
+    speed = np.linalg.norm(p_vel - s_vel, axis=1)
+    in_window = (tca_s >= -_WINDOW_EDGE_S) & (tca_s <= spec.duration_s + _WINDOW_EDGE_S)
+    keep = (in_p | in_s) & (in_window | (speed < LOW_RELATIVE_VELOCITY_KM_S))
     return Rows(
         primary=primary[keep],
         secondary=secondary[keep],
@@ -166,7 +179,7 @@ def _accept_chunk(propagator: Sgp4Propagator, spec, a, b, sample) -> Rows:
         relative_position_rtn_km=rel_rtn[keep],
         relative_velocity_rtn_km_s=rel_vel_rtn[keep],
         miss_distance_km=np.linalg.norm(p_pos - s_pos, axis=1)[keep],
-        relative_speed_km_s=np.linalg.norm(p_vel - s_vel, axis=1)[keep],
+        relative_speed_km_s=speed[keep],
         in_primary_box=in_p[keep],
         in_secondary_box=in_s[keep],
     )

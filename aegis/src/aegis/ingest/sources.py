@@ -155,14 +155,16 @@ class Catalog:
         )
 
     def screening_start(self) -> datetime:
-        """Earliest ``elements.epoch`` if any object has elements, else ``fetched_at``.
+        """Newest ``elements.epoch`` if any object has elements, else ``fetched_at``.
 
         Screening and planning both start here: wall-clock is never the
-        screening start when a catalog epoch is available.
+        screening start when a catalog epoch is available. The newest epoch,
+        not the oldest, so one stale debris element set (Space-Track serves
+        them up to 10 days old) can't pull a 3-day window into the past.
         """
         epochs = [obj.elements.epoch for obj in self.objects if obj.elements is not None]
         if epochs:
-            return min(epochs)
+            return max(epochs)
         return self.fetched_at
 
     def __repr__(self) -> str:

@@ -141,3 +141,41 @@ def test_co_orbiting_pair_is_one_conjunction_per_window() -> None:
     conjunctions = screen(pair, EPOCH + timedelta(minutes=5), 1.5 * period_s)
     assert len(conjunctions) == 1
     assert conjunctions[0].miss_distance_km < 0.1
+
+
+# ---------------------------------------------------------------------------
+# Window edges and duplicate element sets
+# ---------------------------------------------------------------------------
+
+
+def _fast_passes(conjunctions) -> dict[tuple[str, str], list[float]]:
+    passes: dict[tuple[str, str], list[float]] = {}
+    for c in conjunctions:
+        if not c.metadata.get("low_relative_velocity"):
+            key = (c.primary.object_id, c.secondary.object_id)
+            passes.setdefault(key, []).append((c.tca - EPOCH).total_seconds())
+    return passes
+
+
+def test_an_approach_in_the_final_partial_step_is_found() -> None:
+    # A window that is not a whole number of steps still screens its last
+    # partial step, and keeps no fast pass whose TCA is past the end.
+    objects = _crowd() + [  # steeper planes crossing the crowd at 1-2 km/s
+        _satellite(f"{9100 + k}", mean_anomaly_deg=anomaly, inclination_deg=inclination)
+        for k, (inclination, anomaly) in enumerate([(63.0, 100.0), (63.0, 100.02), (43.0, 100.05), (70.0, 99.97)])
+    ]
+    reference = _fast_passes(screen(objects, EPOCH, 3 * 3600.0, step_s=60.0))
+    # The pass furthest past a grid sample: at that sample the pair is still far apart.
+    late = [(tca % 60.0, pair, tca) for pair, tcas in reference.items() for tca in tcas if tca % 60.0 < 57.0]
+    assert late, "the crowd must have a pass away from the 60 s grid"
+    _phase, pair, tca = max(late)
+    duration = tca + 2.0  # the pass sits in the final, partial step
+    found = _fast_passes(screen(objects, EPOCH, duration, step_s=60.0))
+    assert any(abs(t - tca) < 1.0 for t in found.get(pair, []))
+    assert all(0.0 <= t <= duration + 1e-3 for tcas in found.values() for t in tcas)
+
+
+def test_duplicate_element_sets_for_one_object_never_pair() -> None:
+    first = _satellite("5", mean_anomaly_deg=10.0)
+    second = _satellite("5", mean_anomaly_deg=10.001)
+    assert screen([first, second], EPOCH, 3600.0) == []
