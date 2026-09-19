@@ -151,11 +151,17 @@ def public_cdms() -> dict[str, object]:
     }
 
 
+# The longest standard screening period, and the coarsest step validated
+# against dense propagation; both bound the work one request can ask for.
+_MAX_SCENE_DURATION_S = 7 * 86400.0
+_MAX_SCENE_STEP_S = 120.0
+
+
 @app.get("/api/scene")
 def scene(
     max_objects: int = Query(40),
-    duration_s: float = Query(SCREENING_HORIZON_S),
-    step_s: float = Query(CONSOLE_STEP_S),
+    duration_s: float = Query(SCREENING_HORIZON_S, gt=0.0, le=_MAX_SCENE_DURATION_S),
+    step_s: float = Query(CONSOLE_STEP_S, ge=1.0, le=_MAX_SCENE_STEP_S),
     live: str = Query("true"),
 ) -> dict:
     if max_objects < 1 or max_objects > 200:

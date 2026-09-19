@@ -1,7 +1,7 @@
 """Build the console scene payload from the existing pipeline.
 
-CelesTrak Starlink plus overlapping debris when live fetch works;
-committed slices otherwise. The globe and event list only include
+Starlink plus overlapping debris from Space-Track when configured, else
+CelesTrak, else the committed slices. The globe and event list only include
 MONITOR / WATCH / ACT — CLEAR tracks are omitted.
 """
 
@@ -37,7 +37,6 @@ _HONESTY_SYNTHETIC_TLE = (
 )
 _HONESTY_INFLATE = "DISPLAY BAND inflates one step — TLE covariance"
 _HONESTY_LIVE_FAIL = "live fetch failed — FALLBACK SLICE"
-_HONESTY_DEBRIS = "Starlink vs catalog debris over a 3-day TLE screen."
 _HONESTY_RISK_ONLY = (
     "Only MONITOR / WATCH / ACT are shown. CLEAR objects and events are omitted."
 )
@@ -99,12 +98,29 @@ def _pair_key(primary_id: str, secondary_id: str) -> tuple[str, str]:
     return tuple(sorted((primary_id, secondary_id)))
 
 
-def _keep_closest_per_pair(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _window_text(duration_s: float) -> str:
+    for unit, seconds in (("day", 86400.0), ("hour", 3600.0), ("minute", 60.0)):
+        if duration_s >= seconds:
+            return f"{duration_s / seconds:.3g}-{unit}"
+    return f"{duration_s:.3g}-second"
+
+
+def _honesty_debris(duration_s: float) -> str:
+    return f"Starlink vs catalog debris over a {_window_text(duration_s)} TLE screen."
+
+
+def _keep_riskiest_per_pair(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per pair: its highest-Pc approach (ties: the smaller miss).
+
+    Pc, not miss distance: a farther approach can carry the larger Pc, and
+    the kept rows are what the planner resolves.
+    """
     best: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         key = _pair_key(row["primary_id"], row["secondary_id"])
         previous = best.get(key)
-        if previous is None or float(row["miss_km"]) < float(previous["miss_km"]):
+        rank = (-float(row["pc"]), float(row["miss_km"]))
+        if previous is None or rank < (-float(previous["pc"]), float(previous["miss_km"])):
             best[key] = row
     return sorted(best.values(), key=lambda item: (-float(item["pc"]), item["tca"]))
 
@@ -182,7 +198,7 @@ def build_scene(
     step_s: float = 60.0,
     live: bool = True,
 ) -> dict[str, Any]:
-    """Ingest CelesTrak or the slice, run existing physics, return scene JSON."""
+    """Ingest (Space-Track, CelesTrak or the slices), screen, assess and plan; return scene JSON."""
     catalog, fallback = _ingest(live, max_objects)
     objects = list(catalog.objects)
     start = catalog.screening_start()
@@ -245,7 +261,7 @@ def build_scene(
             row["pc_chan"] = float(assessment.cross_check_probability)
         risk_rows.append(row)
 
-    conjunction_rows = _keep_closest_per_pair(risk_rows)
+    conjunction_rows = _keep_riskiest_per_pair(risk_rows)
     kept_ids = {row["id"] for row in conjunction_rows}
     risk_ids = {
         object_id
@@ -321,7 +337,7 @@ def build_scene(
         )
 
     unresolved = sorted(plan.unresolved, key=lambda item: item.shortfall_km, reverse=True)
-    honesty = [_HONESTY_SYNTHETIC_TLE, _HONESTY_DEBRIS, _HONESTY_RISK_ONLY]
+    honesty = [_HONESTY_SYNTHETIC_TLE, _honesty_debris(duration_s), _HONESTY_RISK_ONLY]
     if fallback == "slice":
         honesty.append(_HONESTY_LIVE_FAIL)
     if inflation_applied:

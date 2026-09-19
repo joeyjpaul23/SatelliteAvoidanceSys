@@ -132,10 +132,24 @@ function bandOf(row) {
   return row.display_band || row.color_band || row.risk_level || "CLEAR";
 }
 
+// Values include catalog names from Space-Track / CelesTrak: text nodes only.
 function setKv(dl, rows) {
-  dl.innerHTML = rows
-    .map(([k, v, cls]) => `<dt>${k}</dt><dd class="${cls || ""}">${v}</dd>`)
-    .join("");
+  dl.replaceChildren();
+  for (const [k, v, cls] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v;
+    if (cls) dd.className = cls;
+    dl.append(dt, dd);
+  }
+}
+
+function span(text, className) {
+  const el = document.createElement("span");
+  el.textContent = text;
+  if (className) el.className = className;
+  return el;
 }
 
 function renderStatus() {
@@ -226,7 +240,10 @@ function renderObjects() {
     const row = document.createElement("div");
     row.className = `object-row${obj.id === selected.objectId ? " sel" : ""}`;
     const label = obj.role === "debris" ? `DEB ${obj.name || obj.id}` : (obj.name || obj.id);
-    row.innerHTML = `<span class="name">${label}</span><span class="${BAND_CLASS[obj.color_band] || ""}">${BAND_SHORT[obj.color_band] || obj.color_band}</span>`;
+    row.append(
+      span(label, "name"),
+      span(BAND_SHORT[obj.color_band] || obj.color_band, BAND_CLASS[obj.color_band] || ""),
+    );
     row.addEventListener("click", () => select({ objectId: obj.id, conjunctionId: null }));
     els.objectsBody.appendChild(row);
     if (obj.id === selected.objectId) row.scrollIntoView({ block: "nearest" });
@@ -246,11 +263,12 @@ function renderEvents() {
     const tr = document.createElement("tr");
     const band = bandOf(row);
     if (row.id === selected.conjunctionId) tr.classList.add("sel");
-    tr.innerHTML = `
-      <td>${row.primary_id}/${row.secondary_id}</td>
-      <td class="${BAND_CLASS[band] || ""}">${fmtPc(row.pc)}</td>
-      <td>${fmtNum(row.miss_km, 2)}</td>
-      <td class="${BAND_CLASS[band] || ""}">${BAND_SHORT[band] || band}</td>`;
+    tr.append(
+      cell(`${row.primary_id}/${row.secondary_id}`),
+      cell(fmtPc(row.pc), BAND_CLASS[band] || ""),
+      cell(fmtNum(row.miss_km, 2)),
+      cell(BAND_SHORT[band] || band, BAND_CLASS[band] || ""),
+    );
     tr.addEventListener("click", () => select({ objectId: row.primary_id, conjunctionId: row.id }));
     els.eventsBody.appendChild(tr);
   }

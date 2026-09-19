@@ -193,3 +193,36 @@ def test_scene_omits_clear_events_and_objects(monkeypatch: pytest.MonkeyPatch) -
     if not payload["conjunctions"]:
         assert payload["objects"] == []
         assert any("No MONITOR+" in line for line in payload["honesty"])
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"duration_s": 0},
+        {"duration_s": -60},
+        {"duration_s": 8 * 86400},
+        {"duration_s": "nan"},
+        {"duration_s": "inf"},
+        {"step_s": 0},
+        {"step_s": 0.01},
+        {"step_s": 600},
+    ],
+)
+def test_scene_rejects_windows_and_steps_out_of_range(monkeypatch: pytest.MonkeyPatch, params) -> None:
+    _patch_live_fail(monkeypatch)
+    assert _get_scene(_client(), max_objects=5, live=0, **params).status_code == 422
+
+
+def test_scene_honesty_names_the_requested_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_live_fail(monkeypatch)
+    honesty = _get_scene(_client(), max_objects=5, duration_s=600, live=0).json()["honesty"]
+    assert any("10-minute" in line for line in honesty)
+
+
+def test_each_pair_keeps_its_highest_pc_approach() -> None:
+    from aegis.api.scene import _keep_riskiest_per_pair
+
+    near = {"id": "a", "primary_id": "1", "secondary_id": "2", "miss_km": 0.4, "pc": 1e-6, "tca": "t1"}
+    riskier = {"id": "b", "primary_id": "2", "secondary_id": "1", "miss_km": 0.9, "pc": 3e-5, "tca": "t2"}
+    other = {"id": "c", "primary_id": "1", "secondary_id": "3", "miss_km": 2.0, "pc": 1e-7, "tca": "t3"}
+    assert [row["id"] for row in _keep_riskiest_per_pair([near, riskier, other])] == ["b", "c"]

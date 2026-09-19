@@ -265,9 +265,8 @@ SECONDS_PER_DAY = 86400.0
 #: along-track error is not yet fully diluted.
 SCREENING_HORIZON_S = 3.0 * SECONDS_PER_DAY
 
-#: Console globe track sampling, seconds. Screening still uses
-#: ``CONSOLE_STEP_S``; this only thins the JSON tracks over a multi-day
-#: window so the payload stays browser-sized.
+#: Coarsest console globe track step, seconds: a window over two hours
+#: screened at a coarser step still draws smooth 90-minute tracks.
 CONSOLE_TRACK_STEP_S = 300.0
 
 #: Console screening step, seconds. Coarser than ``SCREENING_STEP_S``
