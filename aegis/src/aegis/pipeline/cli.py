@@ -33,7 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "SPACETRACK, CELESTRAK, or SYNTHETIC; case-insensitive. Default: "
-            "SPACETRACK when SPACETRACK_USER/SPACETRACK_PASS are set, else CELESTRAK."
+            "CELESTRAK with --tle-path; otherwise SPACETRACK when "
+            "SPACETRACK_USER/SPACETRACK_PASS are set, else CELESTRAK."
         ),
     )
     parser.add_argument(
@@ -107,7 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     load_env_file()
-    if args.source is None:
+    if args.source is None and args.tle_path is not None:
+        source = DataSource.CELESTRAK  # a local TLE file is the CelesTrak path
+    elif args.source is None:
         from ..ingest.spacetrack import credentials_from_env
 
         has_credentials = credentials_from_env() is not None

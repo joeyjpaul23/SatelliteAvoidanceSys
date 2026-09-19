@@ -7,10 +7,12 @@ in error messages.
 
 Space-Track suspends accounts that exceed its API throttle, so every request
 passes through :class:`RequestThrottle`, and GP / CDM responses are cached on
-disk under ``$XDG_CACHE_HOME/aegis/spacetrack``. The throttle is per process;
-the cache is what stops the console and the scheduled refresh from both
-downloading in the same hour. Tests inject a fake ``session`` so the client
-never needs the network.
+disk under ``$XDG_CACHE_HOME/aegis/spacetrack``. The console builds a client
+per request, so every client in a process shares one throttle, one download
+lock (concurrent requests on a stale cache wait for a single download) and a
+back-off after a rejected login. The cache is what stops the console and the
+scheduled refresh, separate processes, from both downloading in the same
+hour. Tests inject a fake ``session`` so the client never needs the network.
 
 ``python -m aegis.ingest.spacetrack check`` verifies credentials and
 ``python -m aegis.ingest.spacetrack refresh`` warms the cache.
@@ -23,6 +25,8 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
@@ -147,8 +151,13 @@ class RequestThrottle:
         self._clock = clock
         self._sleep = sleep
         self._stamps: deque[float] = deque()
+        self._lock = threading.Lock()
 
     def acquire(self) -> None:
+        with self._lock:
+            self._acquire()
+
+    def _acquire(self) -> None:
         now = self._clock()
         while self._stamps and now - self._stamps[0] >= 3600.0:
             self._stamps.popleft()
@@ -162,6 +171,15 @@ class RequestThrottle:
             self._sleep(60.0 - (now - recent[0]))
             now = self._clock()
         self._stamps.append(now)
+
+
+# Shared by every client in the process (see the module docstring).
+_PROCESS_THROTTLE = RequestThrottle()
+_DOWNLOAD_LOCK = threading.Lock()
+# A rejected login is not retried with the same credentials for this long, so
+# console polling with a wrong password can't pile up failed logins.
+_AUTH_BACKOFF_S = 900.0
+_auth_rejected_at: dict[SpaceTrackCredentials, float] = {}
 
 
 def query_url(
@@ -352,7 +370,7 @@ class SpaceTrackClient:
 
             session = requests.Session()
         self.session = session
-        self.throttle = throttle if throttle is not None else RequestThrottle()
+        self.throttle = throttle if throttle is not None else _PROCESS_THROTTLE
         self.cache_ttl_s = float(cache_ttl_s)
         self._logged_in = False
 
@@ -362,6 +380,12 @@ class SpaceTrackClient:
         """Open an authenticated session (cookie held by ``session``)."""
         if self.credentials is None:
             raise SpaceTrackAuthError(f"set {_ENV_USER} and {_ENV_PASS} to use Space-Track")
+        rejected_at = _auth_rejected_at.get(self.credentials)
+        if rejected_at is not None and time.monotonic() - rejected_at < _AUTH_BACKOFF_S:
+            raise SpaceTrackAuthError(
+                "Space-Track rejected these credentials recently; "
+                f"not retrying for {_AUTH_BACKOFF_S / 60:.0f} min"
+            )
         self.throttle.acquire()
         try:
             response = self.session.post(
@@ -374,10 +398,12 @@ class SpaceTrackClient:
             raise SpaceTrackError(f"Space-Track login request failed: {type(error).__name__}") from error
         status = _response_status(response)
         body = _response_text(response)
+        if status >= 500:
+            raise SpaceTrackError(f"Space-Track login failed: HTTP {status}")
         if status >= 400 or "failed" in body[:200].lower():
-            raise SpaceTrackAuthError(
-                f"Space-Track rejected the login for {self.credentials.user!r} (HTTP {status})"
-            )
+            _auth_rejected_at[self.credentials] = time.monotonic()
+            raise SpaceTrackAuthError(f"Space-Track rejected the login (HTTP {status})")
+        _auth_rejected_at.pop(self.credentials, None)
         self._logged_in = True
 
     def _get(self, url: str) -> str:
@@ -417,22 +443,41 @@ class SpaceTrackClient:
 
     # -- cache --------------------------------------------------------------
 
+    def _fresh_cache(self, path: Path, what: str) -> tuple[list[dict], datetime] | None:
+        try:
+            mtime = path.stat().st_mtime
+        except FileNotFoundError:
+            return None
+        if time.time() - mtime > self.cache_ttl_s:
+            return None
+        fetched_at = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        return _json_records(path.read_text(encoding="utf-8"), what), fetched_at
+
     def _cached_or_fetch(
         self, name: str, urls: Sequence[str], what: str
     ) -> tuple[list[dict], datetime]:
         path = self.cache_dir / f"{name}.json"
-        if path.is_file() and time.time() - path.stat().st_mtime <= self.cache_ttl_s:
-            fetched_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-            return _json_records(path.read_text(encoding="utf-8"), what), fetched_at
-        records: list[dict] = []
-        for url in urls:
-            records.extend(_json_records(self._get(url), what))
-        # Validate before caching so an error payload is never served later,
-        # and replace atomically because the console and refresh share it.
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(records), encoding="utf-8")
-        os.replace(tmp, path)
+        cached = self._fresh_cache(path, what)
+        if cached is not None:
+            return cached
+        with _DOWNLOAD_LOCK:
+            # Another request may have downloaded it while this one waited.
+            cached = self._fresh_cache(path, what)
+            if cached is not None:
+                return cached
+            records: list[dict] = []
+            for url in urls:
+                records.extend(_json_records(self._get(url), what))
+            # Validate before caching so an error payload is never served
+            # later, and replace atomically because the console and refresh
+            # share it.
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+                encoding="utf-8", delete=False,
+            ) as handle:
+                handle.write(json.dumps(records))
+            os.replace(handle.name, path)
         return records, utc_now()
 
     # -- queries ------------------------------------------------------------

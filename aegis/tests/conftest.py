@@ -22,3 +22,12 @@ def isolate_spacetrack_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AEGIS_DOTENV", "0")
     monkeypatch.delenv("SPACETRACK_USER", raising=False)
     monkeypatch.delenv("SPACETRACK_PASS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def isolate_spacetrack_process_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test gets a fresh process-wide throttle and login back-off."""
+    from aegis.ingest import spacetrack
+
+    monkeypatch.setattr(spacetrack, "_PROCESS_THROTTLE", spacetrack.RequestThrottle())
+    monkeypatch.setattr(spacetrack, "_auth_rejected_at", {})

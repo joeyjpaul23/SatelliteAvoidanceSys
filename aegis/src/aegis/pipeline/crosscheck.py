@@ -35,7 +35,7 @@ from ..ingest.spacetrack import (
     latest_per_event,
 )
 from ..risk import assess_catalog
-from ..screening import screen
+from ..screening import ScreeningError, screen
 
 __all__ = [
     "CROSSCHECK_WINDOW_S",
@@ -170,13 +170,17 @@ def _check_event(
         return CrossCheck(event, cdm_rows, reason=f"no Space-Track GP for {', '.join(missing)}")
     pair = [objects_by_id[event.norad_id_1], objects_by_id[event.norad_id_2]]
     tca = ensure_utc(event.tca)
-    conjunctions = screen(
-        pair,
-        shift(tca, -window_s),
-        2.0 * window_s,
-        step_s=step_s,
-        box_km=SCREENING_BOX_TLE_GRADE_KM,
-    )
+    try:
+        conjunctions = screen(
+            pair,
+            shift(tca, -window_s),
+            2.0 * window_s,
+            step_s=step_s,
+            box_km=SCREENING_BOX_TLE_GRADE_KM,
+        )
+    except ScreeningError as error:
+        # One undecayable or decayed element set must not sink the whole report.
+        return CrossCheck(event, cdm_rows, reason=f"screening failed: {error}")
     ages = [
         abs(seconds_between(obj.elements.epoch, tca)) / 86400.0
         for obj in pair
@@ -250,8 +254,12 @@ def append_archive(report: CrossCheckReport, path: str | Path | None = None) -> 
     seen: set[str] = set()
     if archive.is_file():
         for line in archive.read_text(encoding="utf-8").splitlines():
-            if line.strip():
+            try:
                 seen.add(str(json.loads(line)["cdm_id"]))
+            except (ValueError, KeyError, TypeError):
+                # Blank, or cut short by a run killed mid-write: skip it
+                # rather than fail every later hourly run.
+                continue
     checked_at = utc_now().isoformat()
     context = {
         "checked_at": checked_at,

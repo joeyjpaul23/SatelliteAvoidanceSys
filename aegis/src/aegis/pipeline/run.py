@@ -54,9 +54,16 @@ def _ingest_spacetrack(group: str, session, cache_dir) -> Catalog:
 
     try:
         client = SpaceTrackClient(session=session, cache_dir=cache_dir)
-        return client.fetch_fleet(group)
+        catalog = client.fetch_fleet(group)
     except Exception as error:
         raise PipelineError(f"Space-Track ingest failed: {error}") from error
+    if len(catalog) == 0:
+        # An empty plan would read as "no conjunctions".
+        raise PipelineError(
+            f"no on-orbit Space-Track objects are named {group.strip().upper()}*; "
+            "for a CelesTrak group name, pass --source CELESTRAK"
+        )
+    return catalog
 
 
 def _ingest_tle_file(path: str | Path) -> Catalog:

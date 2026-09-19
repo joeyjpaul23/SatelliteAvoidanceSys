@@ -131,6 +131,28 @@ def test_archive_appends_each_cdm_once(fake_physics, tmp_path: Path) -> None:
     assert all("checked_at" in line and "aegis_pc" in line for line in lines)
 
 
+def test_archive_survives_a_truncated_line(fake_physics, tmp_path: Path) -> None:
+    archive = tmp_path / "history.jsonl"
+    archive.write_text('{"cdm_id": "1", "aegis_pc"\n\n')
+    assert append_archive(_report(fake_physics), archive) == 2
+
+
+def test_screening_failure_is_contained_to_its_event(fake_physics, monkeypatch) -> None:
+    from aegis.screening import ScreeningError
+
+    real = crosscheck.screen
+
+    def failing_screen(pair, *args, **kwargs):
+        if pair[0].object_id == "300":
+            raise ScreeningError("SGP4 error 6 (decayed)")
+        return real(pair, *args, **kwargs)
+
+    monkeypatch.setattr(crosscheck, "screen", failing_screen)
+    ok, failed = _report(fake_physics).checks
+    assert ok.found
+    assert not failed.found and "decayed" in failed.reason
+
+
 def test_api_public_cdms_unconfigured() -> None:
     body = TestClient(app_module.app).get("/api/public-cdms").json()
     assert body["configured"] is False and body["events"] == []
@@ -148,3 +170,18 @@ def test_api_public_cdms_serves_report(fake_physics, monkeypatch) -> None:
     assert body["summary"]["events"] == 2
     assert [event["cdm_id"] for event in body["events"]] == ["1", "2"]
     assert "secret" not in json.dumps(body)
+
+
+def test_api_public_cdms_returns_503_without_credentials_in_detail(monkeypatch) -> None:
+    from aegis.ingest.spacetrack import SpaceTrackAuthError
+
+    monkeypatch.setenv("SPACETRACK_USER", "user@example.com")
+    monkeypatch.setenv("SPACETRACK_PASS", "secret")
+
+    def rejected():
+        raise SpaceTrackAuthError("Space-Track rejected the login (HTTP 401)")
+
+    monkeypatch.setattr(app_module, "_crosscheck_report", rejected)
+    response = TestClient(app_module.app).get("/api/public-cdms")
+    assert response.status_code == 503
+    assert "user@example.com" not in response.text and "secret" not in response.text

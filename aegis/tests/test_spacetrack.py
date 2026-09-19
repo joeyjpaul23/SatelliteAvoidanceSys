@@ -201,12 +201,65 @@ def test_debris_query_is_non_payload_leo_band(tmp_path: Path) -> None:
     assert "/PERIAPSIS/%3C1000/APOAPSIS/%3E200/" in url
 
 
-def test_rejected_login_raises_without_leaking_password(tmp_path: Path) -> None:
+def test_rejected_login_raises_without_leaking_credentials(tmp_path: Path) -> None:
     session = FakeSession(login=FakeResponse('{"Login":"Failed"}'))
     with pytest.raises(SpaceTrackAuthError) as caught:
         _client(tmp_path, session).fetch_fleet()
     assert CREDS.password not in str(caught.value)
+    assert CREDS.user not in str(caught.value)
     assert session.urls == []
+
+
+def test_rejected_login_is_not_retried_by_the_next_client(tmp_path: Path) -> None:
+    # The console builds a client per request; a wrong password must not turn
+    # every request into another failed login.
+    session = FakeSession(login=FakeResponse('{"Login":"Failed"}'))
+    with pytest.raises(SpaceTrackAuthError):
+        _client(tmp_path, session).fetch_fleet()
+    with pytest.raises(SpaceTrackAuthError, match="recently"):
+        _client(tmp_path, session).fetch_fleet()
+    assert len(session.posts) == 1
+
+
+def test_login_server_error_is_transient_not_a_rejection(tmp_path: Path) -> None:
+    session = FakeSession(login=FakeResponse("", 503), gets=[FakeResponse(json.dumps([STARLINK_GP]))])
+    with pytest.raises(SpaceTrackError) as caught:
+        _client(tmp_path, session).fetch_fleet()
+    assert not isinstance(caught.value, SpaceTrackAuthError)
+    session.login_response = FakeResponse("")
+    assert len(_client(tmp_path, session).fetch_fleet()) == 1
+
+
+def test_clients_share_one_throttle() -> None:
+    assert SpaceTrackClient(CREDS, session=NoNetwork()).throttle is SpaceTrackClient(
+        CREDS, session=NoNetwork()
+    ).throttle
+
+
+def test_concurrent_stale_requests_download_once(tmp_path: Path) -> None:
+    import threading
+
+    release = threading.Event()
+
+    class SlowSession(FakeSession):
+        def get(self, url, **kwargs):
+            release.wait(5)
+            return super().get(url, **kwargs)
+
+    session = SlowSession(gets=[FakeResponse(json.dumps([STARLINK_GP]))])
+    results: list[int] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(len(_client(tmp_path, session).fetch_fleet())))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    release.set()
+    for thread in threads:
+        thread.join(10)
+    assert results == [1, 1, 1, 1]
+    assert len(session.urls) == 1
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 def test_missing_credentials_raise_before_any_request(tmp_path: Path) -> None:
@@ -419,6 +472,35 @@ def test_cli_without_credentials_exits_2(capsys) -> None:
     assert "SPACETRACK_USER" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["check", "refresh"])
+def test_cli_exit_codes_and_no_password_in_output(command, monkeypatch, capsys, tmp_path: Path) -> None:
+    # aegis-refresh.service relies on 0 = ok, 1 = Space-Track failed.
+    from aegis.ingest import spacetrack
+
+    monkeypatch.setenv("SPACETRACK_USER", CREDS.user)
+    monkeypatch.setenv("SPACETRACK_PASS", CREDS.password)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    gp = FakeResponse(json.dumps([STARLINK_GP]))
+    gp_queries = [gp, gp] if command == "refresh" else [gp]  # refresh adds the debris query
+    session = FakeSession(gets=[*gp_queries, FakeResponse(json.dumps(CDM_PUBLIC))])
+    real = spacetrack.SpaceTrackClient
+    monkeypatch.setattr(
+        spacetrack, "SpaceTrackClient", lambda credentials, **kw: real(credentials, session=session, **kw)
+    )
+    assert main([command]) == 0
+    out = capsys.readouterr()
+    assert "cdm_public: 2 upcoming events" in out.out
+    assert CREDS.password not in out.out + out.err
+
+    failing = FakeSession(gets=[FakeResponse("", 503), FakeResponse("", 503)])
+    monkeypatch.setattr(
+        spacetrack, "SpaceTrackClient", lambda credentials, **kw: real(credentials, session=failing, cache_ttl_s=-1)
+    )
+    assert main([command]) == 1
+    out = capsys.readouterr()
+    assert "503" in out.err and CREDS.password not in out.out + out.err
+
+
 # ---------------------------------------------------------------------------
 # Event grouping and GP by catalog number
 # ---------------------------------------------------------------------------
@@ -490,6 +572,10 @@ def test_env_file_sets_only_unset_variables(tmp_path: Path, monkeypatch) -> None
 
     monkeypatch.setenv("AEGIS_DOTENV", "1")
     monkeypatch.setenv("SPACETRACK_USER", "from-shell")
+    # Register SPACETRACK_PASS with monkeypatch so the value the file sets is
+    # removed again at teardown.
+    monkeypatch.setenv("SPACETRACK_PASS", "placeholder")
+    monkeypatch.delenv("SPACETRACK_PASS")
     env = tmp_path / ".env"
     env.write_text(
         "# comment\nSPACETRACK_USER='from-file'\nexport SPACETRACK_PASS=\"p a'ss\"\nnot a line\n"
@@ -526,4 +612,15 @@ def test_pipeline_cli_defaults_to_spacetrack_only_with_credentials(monkeypatch) 
     monkeypatch.setenv("SPACETRACK_PASS", CREDS.password)
     assert cli.main([]) == 1
     assert cli.main(["--source", "celestrak"]) == 1
-    assert seen == [DataSource.CELESTRAK, DataSource.SPACETRACK, DataSource.CELESTRAK]
+    assert cli.main(["--tle-path", "fleet.tle"]) == 1  # a local file implies CelesTrak
+    assert seen == [DataSource.CELESTRAK, DataSource.SPACETRACK, DataSource.CELESTRAK, DataSource.CELESTRAK]
+
+
+def test_pipeline_spacetrack_empty_name_match_is_an_error(tmp_path: Path, monkeypatch) -> None:
+    from aegis.pipeline.run import _ingest_spacetrack
+
+    monkeypatch.setenv("SPACETRACK_USER", CREDS.user)
+    monkeypatch.setenv("SPACETRACK_PASS", CREDS.password)
+    session = FakeSession(gets=[FakeResponse("[]")])
+    with pytest.raises(PipelineError, match="--source CELESTRAK"):
+        _ingest_spacetrack("gps-ops", session, tmp_path)
