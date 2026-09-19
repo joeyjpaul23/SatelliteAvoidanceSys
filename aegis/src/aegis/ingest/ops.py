@@ -44,21 +44,6 @@ _NETWORK_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
-def _cap(catalog: Catalog, max_objects: int | None) -> Catalog:
-    if max_objects is None:
-        return catalog
-    if max_objects < 0:
-        raise ValueError("max_objects must be non-negative")
-    if max_objects >= len(catalog.objects):
-        return catalog
-    return Catalog(
-        source=catalog.source,
-        objects=list(catalog.objects[:max_objects]),
-        fetched_at=catalog.fetched_at,
-        query=catalog.query,
-    )
-
-
 def load_starlink_slice(
     path: str | Path | None = None,
     *,
@@ -66,7 +51,7 @@ def load_starlink_slice(
 ) -> Catalog:
     """Load the committed offline Starlink TLE slice as a CelesTrak catalog."""
     file_path = Path(path) if path is not None else _DEFAULT_STARLINK_SLICE
-    return _cap(catalog_from_tle_file(file_path), max_objects)
+    return catalog_from_tle_file(file_path).head(max_objects)
 
 
 def load_debris_slice(
@@ -79,7 +64,7 @@ def load_debris_slice(
     catalog = catalog_from_tle_file(file_path)
     for obj in catalog.objects:
         _tag_debris(obj)
-    return _cap(catalog, max_objects)
+    return catalog.head(max_objects)
 
 
 def _altitude_band_km(obj: SpaceObject) -> tuple[float, float] | None:
@@ -113,7 +98,7 @@ def overlapping_debris(
     *,
     pad_km: float = PERIGEE_APOGEE_PAD_KM,
 ) -> Catalog:
-    """Keep debris whose radial band can meet the fleet after prefilter pad."""
+    """Keep debris whose radial band can meet the fleet's, padded by ``pad_km``."""
     lo, hi = _fleet_altitude_window_km(fleet)
     kept: list[SpaceObject] = []
     for obj in debris.objects:

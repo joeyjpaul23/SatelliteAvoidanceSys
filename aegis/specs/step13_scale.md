@@ -3,67 +3,36 @@
 Tester writes tests from this document. Builder must not edit `tests/`.
 No live CelesTrak.
 
-## Spatial partition
+## Candidate pairs
 
-`aegis.screening.broadphase` (or a new `aegis.screening.partition`)
-must not require an all-pairs Python loop over objects × times as the
-only path when N is large.
-
-Add:
+`screen` must not require an all-pairs Python loop over objects × times
+as the only path when N is large.
 
 ```
-broadphase(
-    grid,
-    *,
-    box_km=...,
-    max_relative_speed_km_s=...,
-    cell_km: float | None = None,
-) -> list[tuple[int, int, int]]
+screen(..., partitioned: bool | None = None, workers: int | None = None)
 ```
 
-or a separate `broadphase_partitioned(...)` that `screen` uses when
-`n_objects >= 50` (threshold may be a constant
-`SCREENING_PARTITION_MIN_OBJECTS = 50` in `constants.py`).
-
-Partition idea (builder may vary): grid cells of size ~ max(box) +
-reach, hash objects per epoch, only test pairs that share a cell or
-neighbor cells. Must be **conservative**: any pair the naive box/no-miss
-gate would keep must still be a candidate (no false negatives).
+- `partitioned=True` generates candidate pairs from a k-d tree;
+  `partitioned=False` uses all pairs. `None` means auto: the tree is on
+  when N >= `SCREENING_PARTITION_MIN_OBJECTS` (50, in `constants.py`).
+- The tree must be **conservative**: any pair the all-pairs path would
+  keep must still be a candidate (no false negatives).
+- `workers` caps parallel worker processes (default `AEGIS_WORKERS` or
+  the CPU count). Parallel and serial runs return the same result.
 
 ## Correctness
 
 On a synthetic catalog of **12** objects (gated generate_synthetic,
-n_planes=2, sats_per_plane=6), `screen` with and without partition
-(expose a `screen(..., partitioned: bool | None = None)` or compare
-`broadphase` vs `broadphase_partitioned` on the same grid) must produce
-the **same set of (i, j, time_index)** after sorting, or the same set of
-`conjunction_id`s from `screen`.
+n_planes=2, sats_per_plane=6), `screen` with `partitioned=True` and
+`partitioned=False` must produce the same set of `conjunction_id`s (or,
+failing that, the same set of pair ids). Partitioned screening must never
+drop a pair that unpartitioned screening keeps.
 
-If you only add an optional flag:
+## Bounded memory
 
-```
-screen(..., partitioned: bool | None = None)
-```
-
-`None` means auto (on when N >= 50). Tests will force both True and
-False on N=12.
-
-## Blocked propagation
-
-`Sgp4Propagator.propagate_grid` (or a new `propagate_grid_blocked`)
-must support splitting the time axis into blocks so a long window does
-not allocate one giant `(N, T, 3)` array.
-
-```
-propagate_grid(start, duration_s, step_s, *, block_duration_s: float | None = None)
-```
-
-When `block_duration_s` is set (e.g. 1800), propagate in chunks and
-**concatenate** (or yield) a `PropagationGrid` equivalent to the
-unblocked call (same times, positions agree where valid).
-
-`screen` on N>=50 should pass a block duration (e.g. 1800 s) so memory
-stays bounded. Positions at overlapping block edges must match.
+`screen` streams the window in time blocks and never holds the full
+`(N, T, 3)` grid. Where the block edges fall must not change the result:
+an approach cut by a block edge is stitched back into one conjunction.
 
 ## Scale smoke
 
@@ -80,4 +49,4 @@ Do not require the full maneuver LP on 200 objects in this step.
 
 ## Out of scope
 
-Catalog-scale (10k+), GNN, api/ui.
+GNN, api/ui.

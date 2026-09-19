@@ -139,5 +139,31 @@ class Catalog:
             return NotImplemented
         return self.merge(other)
 
+    def head(self, count: int | None) -> Catalog:
+        """The first ``count`` objects in catalog order; ``None`` keeps all."""
+        if count is None:
+            return self
+        if count < 0:
+            raise ValueError("max_objects must be non-negative")
+        if count >= len(self.objects):
+            return self
+        return Catalog(
+            source=self.source,
+            objects=list(self.objects[:count]),
+            fetched_at=self.fetched_at,
+            query=self.query,
+        )
+
+    def screening_start(self) -> datetime:
+        """Earliest ``elements.epoch`` if any object has elements, else ``fetched_at``.
+
+        Screening and planning both start here: wall-clock is never the
+        screening start when a catalog epoch is available.
+        """
+        epochs = [obj.elements.epoch for obj in self.objects if obj.elements is not None]
+        if epochs:
+            return min(epochs)
+        return self.fetched_at
+
     def __repr__(self) -> str:
         return f"Catalog(source={self.source!r}, n={len(self.objects)}, query={self.query!r})"

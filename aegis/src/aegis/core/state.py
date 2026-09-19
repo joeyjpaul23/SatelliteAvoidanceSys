@@ -71,22 +71,6 @@ class StateVector:
         """Rotation matrix from this object's RTN frame into the inertial frame."""
         return frames.rtn_to_eci_matrix(self.position_km, self.velocity_km_s)
 
-    def propagate_linear(self, seconds: float) -> "StateVector":
-        """Advance under constant velocity.
-
-        Only valid over intervals short enough that curvature is negligible --
-        used for closest-approach refinement within a single screening step,
-        never for actual orbit propagation.
-        """
-        from .timebase import shift
-
-        return StateVector(
-            epoch=shift(self.epoch, seconds),
-            position_km=self.position_km + self.velocity_km_s * seconds,
-            velocity_km_s=self.velocity_km_s,
-            frame=self.frame,
-        )
-
 
 class CovarianceSource:
     """How a covariance came to exist. Provenance drives how far to trust it."""
@@ -211,17 +195,6 @@ class Ephemeris:
 
     def __len__(self) -> int:
         return len(self.epochs)
-
-    def state_at_index(self, index: int) -> StateVector:
-        """Extract one sample as a :class:`StateVector`."""
-        from .timebase import shift
-
-        return StateVector(
-            epoch=shift(self.reference_epoch, float(self.epochs[index])),
-            position_km=self.positions_km[index],
-            velocity_km_s=self.velocities_km_s[index],
-            frame=self.frame,
-        )
 
     def interpolate(self, seconds: float) -> tuple[np.ndarray, np.ndarray]:
         """Cubic Hermite interpolation of position and velocity.

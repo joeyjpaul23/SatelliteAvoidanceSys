@@ -26,7 +26,6 @@ __all__ = [
     "seconds_between",
     "shift",
     "JULIAN_DATE_UNIX_EPOCH",
-    "to_julian_date",
 ]
 
 #: Julian date of the Unix epoch (1970-01-01T00:00:00Z).
@@ -84,7 +83,6 @@ def parse_epoch(text: str) -> datetime:
     if not time_part:
         return base
 
-    hh, mm, _, ss = time_part.partition(":")[0], "", "", ""
     time_pieces = time_part.split(":")
     if len(time_pieces) != 3:
         raise ValueError(f"unrecognised epoch time component: {text!r}")
@@ -114,10 +112,3 @@ def seconds_between(start: datetime, end: datetime) -> float:
 def shift(moment: datetime, seconds: float) -> datetime:
     """Offset an epoch by a floating-point number of seconds."""
     return ensure_utc(moment) + timedelta(seconds=seconds)
-
-
-def to_julian_date(moment: datetime) -> float:
-    """Convert to Julian date, as SGP4 initialisation expects."""
-    moment = ensure_utc(moment)
-    unix_seconds = moment.timestamp()
-    return JULIAN_DATE_UNIX_EPOCH + unix_seconds / 86400.0

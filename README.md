@@ -22,9 +22,12 @@ AEGIS puts the condition inside the optimizer, and proves the constraint set
 is complete.
 
 ```
-aegis/     Python package, tests, step contracts, operations console
-docs/      What the system will and will not claim, and what was measured
-archive/   Historical Kelvins / PINN work -- not on the default path
+aegis/      Python package, tests, step contracts, operations console
+docs/       What the system will and will not claim, and what was measured
+deploy/     Always-on console on an Oracle Cloud Always Free VM
+paper/      Whitepaper LaTeX source
+orbitlab/   Separate C++20 orbital-dynamics sandbox
+notebooks/  TLE propagation notebook
 ```
 
 ## The research layer

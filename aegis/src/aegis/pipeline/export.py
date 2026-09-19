@@ -166,17 +166,6 @@ def write_plan_text(result: PipelineResult, path: str | Path) -> Path:
     return dest
 
 
-def _screening_start(result: PipelineResult):
-    epochs = [
-        obj.elements.epoch
-        for obj in result.catalog.objects
-        if obj.elements is not None
-    ]
-    if epochs:
-        return min(epochs)
-    return result.catalog.fetched_at
-
-
 def write_plan_oems(result: PipelineResult, directory: str | Path) -> list[Path]:
     """Write a CCSDS OEM for each satellite in the plan that has burns.
 
@@ -205,7 +194,7 @@ def write_plan_oems(result: PipelineResult, directory: str | Path) -> list[Path]
     if duration_s <= 0.0:
         duration_s = _DEFAULT_OEM_DURATION_S
     step_s = duration_s / (_OEM_SAMPLES - 1)
-    start = _screening_start(result)
+    start = result.catalog.screening_start()
 
     written: list[Path] = []
     for sat_id in sorted(burning):

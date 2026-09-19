@@ -108,11 +108,6 @@ class PropagationGrid:
             frame="TEME",
         )
 
-    def memory_mb(self) -> float:
-        """Approximate footprint. Useful for sizing time blocks."""
-        arrays = self.positions_km.nbytes + self.velocities_km_s.nbytes + self.valid.nbytes
-        return arrays / (1024 * 1024)
-
 
 class Sgp4Propagator:
     """Vectorised SGP4 propagation for a catalog of objects.
@@ -212,8 +207,6 @@ class Sgp4Propagator:
         start: datetime,
         duration_s: float,
         step_s: float,
-        *,
-        block_duration_s: float | None = None,
     ) -> PropagationGrid:
         """Propagate every object across a uniform time grid.
 
@@ -228,68 +221,18 @@ class Sgp4Propagator:
             why 30 s is a reasonable default -- the cost model trades
             propagation count against neighbour count, and neighbour counts
             grow as the cube of the step.
-        block_duration_s
-            If set, split the time axis into blocks of this length and
-            concatenate. Adjacent blocks share the boundary epoch so edge
-            states are computed twice and must agree; the assembled grid
-            has the same times and valid positions as an unblocked call.
 
         Notes
         -----
-        Callers screening long spans should invoke this per time *block*
-        rather than for the whole window at once. A 10,000-object catalog at
-        30 s spacing over seven days is roughly 4.8 GB if materialised in one
-        array; an hour-long block is about 29 MB.
+        The whole grid is materialised at once: a 10,000-object catalog at
+        30 s spacing over seven days is roughly 4.8 GB. Catalog-scale
+        screening streams time blocks through :mod:`aegis.screening.sweep`
+        instead.
         """
         start = ensure_utc(start)
         n_steps = int(np.floor(duration_s / step_s)) + 1
         times_s = np.arange(n_steps, dtype=float) * step_s
-
-        if block_duration_s is None:
-            return self._propagate_times(start, times_s)
-
-        block_span = float(block_duration_s)
-        if block_span <= 0.0:
-            raise PropagationError("block_duration_s must be positive")
-
-        samples_per_block = int(np.floor(block_span / step_s)) + 1
-        if samples_per_block <= 1 or samples_per_block >= n_steps:
-            return self._propagate_times(start, times_s)
-
-        position_blocks: list[np.ndarray] = []
-        velocity_blocks: list[np.ndarray] = []
-        valid_blocks: list[np.ndarray] = []
-        time_blocks: list[np.ndarray] = []
-
-        start_idx = 0
-        first_block = True
-        while start_idx < n_steps:
-            end_idx = min(start_idx + samples_per_block, n_steps)
-            chunk = self._propagate_times(start, times_s[start_idx:end_idx])
-            if first_block:
-                position_blocks.append(chunk.positions_km)
-                velocity_blocks.append(chunk.velocities_km_s)
-                valid_blocks.append(chunk.valid)
-                time_blocks.append(chunk.times_s)
-                first_block = False
-            else:
-                # Shared edge sample was already written by the previous block.
-                position_blocks.append(chunk.positions_km[:, 1:, :])
-                velocity_blocks.append(chunk.velocities_km_s[:, 1:, :])
-                valid_blocks.append(chunk.valid[:, 1:])
-                time_blocks.append(chunk.times_s[1:])
-            if end_idx >= n_steps:
-                break
-            start_idx = end_idx - 1
-
-        return PropagationGrid(
-            object_ids=list(self.object_ids),
-            times_s=np.concatenate(time_blocks),
-            positions_km=np.concatenate(position_blocks, axis=1),
-            velocities_km_s=np.concatenate(velocity_blocks, axis=1),
-            valid=np.concatenate(valid_blocks, axis=1),
-            reference_epoch=start,
-        )
+        return self._propagate_times(start, times_s)
 
     def propagate_one(self, object_index: int, epoch: datetime) -> StateVector:
         """Propagate a single object to a single epoch.

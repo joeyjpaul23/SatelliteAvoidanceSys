@@ -35,7 +35,7 @@ tle_path: str | Path | None = None
 ```
 
 - If `tle_path` is set, `source` must be CELESTRAK (default). Using
-  `tle_path` with `source=SYNTHETIC` raises `PipelineError`.
+  `tle_path` with any other source raises `PipelineError`.
 - Loads via `catalog_from_tle_file`; does not open HTTP.
 - `group` is ignored when `tle_path` is set.
 - `config.max_objects` still applies after load.

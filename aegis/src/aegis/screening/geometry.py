@@ -1,4 +1,4 @@
-"""Shared screening geometry: primary assignment, RTN relatives, box tests."""
+"""Shared screening geometry: primary assignment, conjunction ids, RTN relatives."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ from ..core.timebase import format_epoch
 __all__ = [
     "assign_primary",
     "conjunction_id",
-    "distance_to_box",
-    "inside_box",
     "relative_rtn",
     "rtn_to_eci_batch",
 ]
@@ -57,27 +55,6 @@ def relative_rtn(
     position_rtn = rotation.T @ (secondary.position_km - primary.position_km)
     velocity_rtn = rotation.T @ (secondary.velocity_km_s - primary.velocity_km_s)
     return position_rtn, velocity_rtn
-
-
-def inside_box(position_rtn_km: np.ndarray, box_km: tuple[float, float, float]) -> bool:
-    """Whether an RTN position lies inside the closed screening box."""
-    return bool(np.all(np.abs(np.asarray(position_rtn_km, dtype=float).reshape(3)) <= np.asarray(box_km, dtype=float)))
-
-
-def distance_to_box(
-    position_rtn_km: np.ndarray, box_km: tuple[float, float, float]
-) -> float:
-    """Euclidean distance from an RTN position to the closed screening box.
-
-    Zero when the position is inside. Used by the no-miss gate: if this
-    remaining distance can be closed within one step at the bounding
-    relative speed, the step cannot be ruled out.
-    """
-    excess = np.maximum(
-        np.abs(np.asarray(position_rtn_km, dtype=float).reshape(3)) - np.asarray(box_km, dtype=float),
-        0.0,
-    )
-    return float(np.linalg.norm(excess))
 
 
 def rtn_to_eci_batch(

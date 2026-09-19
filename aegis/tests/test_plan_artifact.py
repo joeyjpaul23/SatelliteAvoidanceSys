@@ -33,7 +33,7 @@ from aegis.risk import AssessedCatalog
 import aegis.pipeline as pipeline_pkg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LIMITATIONS_MD = Path("/Users/joeypaul/PIGNN-SAT/docs/LIMITATIONS.md")
+LIMITATIONS_MD = REPO_ROOT / "docs" / "LIMITATIONS.md"
 
 _REQUIRED_EXPORTS = {"plan_artifact", "write_plan_json", "write_plan_text"}
 

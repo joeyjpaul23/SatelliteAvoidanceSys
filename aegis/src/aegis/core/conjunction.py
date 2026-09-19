@@ -1,6 +1,6 @@
-"""Conjunctions, risk assessments, and conjunction events.
+"""Conjunctions and risk assessments.
 
-Three distinct concepts that are easy to conflate:
+Two distinct concepts that are easy to conflate:
 
 Conjunction
     A single predicted close approach between two objects -- a geometry
@@ -11,12 +11,6 @@ RiskAssessment
     Kept separate from the geometry because the same close approach can be
     assessed with different covariance assumptions or hard-body radii and
     yield different numbers.
-
-ConjunctionEvent
-    The history of one physical close approach as understanding of it evolves
-    -- the sequence of assessments produced as new tracking data arrives.
-    This mirrors the CCSDS/operational distinction between a CDM (one
-    snapshot) and a conjunction event (the whole thread).
 """
 
 from __future__ import annotations
@@ -38,7 +32,6 @@ from .timebase import ensure_utc
 __all__ = [
     "Conjunction",
     "RiskAssessment",
-    "ConjunctionEvent",
     "RiskLevel",
 ]
 
@@ -261,67 +254,3 @@ class RiskAssessment:
             return True
         scale = max(self.probability, self.cross_check_probability, 1e-30)
         return abs(self.probability - self.cross_check_probability) / scale < 1e-2
-
-
-@dataclass
-class ConjunctionEvent:
-    """The evolving history of one physical close approach.
-
-    A conjunction is re-assessed as new tracking data arrives; this collects
-    that sequence so an operator can see whether risk is trending up or down.
-    Mirrors the CDM-versus-event distinction in operational systems.
-    """
-
-    event_id: str
-    primary_id: str
-    secondary_id: str
-    tca: datetime
-    assessments: list[RiskAssessment] = field(default_factory=list)
-    conjunctions: list[Conjunction] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.tca = ensure_utc(self.tca)
-
-    @property
-    def latest_assessment(self) -> RiskAssessment | None:
-        return self.assessments[-1] if self.assessments else None
-
-    @property
-    def peak_probability(self) -> float:
-        """Highest probability seen across the event's history."""
-        if not self.assessments:
-            return 0.0
-        return max(assessment.probability for assessment in self.assessments)
-
-    @property
-    def trend(self) -> str:
-        """Direction of the two most recent assessments."""
-        if len(self.assessments) < 2:
-            return "UNKNOWN"
-        latest, previous = self.assessments[-1].probability, self.assessments[-2].probability
-        if latest > previous * 1.1:
-            return "RISING"
-        if latest < previous * 0.9:
-            return "FALLING"
-        return "STABLE"
-
-    def add(self, conjunction: Conjunction, assessment: RiskAssessment) -> None:
-        """Append a new snapshot of this event."""
-        self.conjunctions.append(conjunction)
-        self.assessments.append(assessment)
-
-
-def cumulative_probability(probabilities: list[float]) -> float:
-    """Combine independent conjunction probabilities into a total.
-
-    ``P_total = 1 - prod(1 - P_i)``
-
-    Screening a constellation means a satellite can accumulate many
-    individually sub-threshold events whose combined risk exceeds the action
-    threshold. A per-event threshold alone understates exposure, so aggregate
-    per-object risk over the screening window is reported alongside it.
-    """
-    survival = 1.0
-    for probability in probabilities:
-        survival *= 1.0 - probability
-    return 1.0 - survival

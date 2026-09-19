@@ -102,15 +102,6 @@ def _catalog_by_id(
     return by_id
 
 
-def _state_for(object_id: str, entry) -> StateVector | None:
-    conjunction = entry.conjunction
-    if conjunction.primary.object_id == object_id:
-        return conjunction.primary_state
-    if conjunction.secondary.object_id == object_id:
-        return conjunction.secondary_state
-    return None
-
-
 def _empty_plan(generated_at: datetime, notes: list[str] | None = None) -> ManeuverPlan:
     return ManeuverPlan(
         plan_id=_new_plan_id(),

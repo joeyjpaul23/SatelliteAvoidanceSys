@@ -15,6 +15,7 @@ Public exports:
 - `along_track_response_km`
 - `required_miss_distance_km`
 - `plan_maneuvers`
+- `apply_along_track_burns` (Step 10)
 - `rescreen_until_stable`
 - `ManeuverSolverError`
 
@@ -113,9 +114,11 @@ plan_maneuvers(
 - Burns are stored as `Maneuver` with `delta_v_rtn_km_s` along-track only
   (`[0, dv, 0]`).
 - `plan.summary()` remains valid.
-- Two-satellite, one-conjunction cases that are along-track separable must
-  produce at least one burn and mark that conjunction `resolved=True` when
-  the required miss is achievable within budget.
+- A conjunction that already meets the required miss gets no burn and is
+  listed `resolved=True` with `shortfall_km == 0`. An along-track-separable
+  conjunction below the required miss gets a real LP burn and is marked
+  `resolved=True` when the required miss is achievable within budget
+  (Step 10).
 
 `now` defaults to the earliest screening window start among conjunctions, or
 `utc_now()` if absent.

@@ -10,8 +10,8 @@ Tester writes tests from this document only and must not read
 Public exports:
 
 - `screen`
-- `prefilter_pairs`
-- `broadphase`
+- `screen_table`
+- `ConjunctionTable`
 - `refine_tca`
 - `ScreeningError`
 
@@ -26,6 +26,9 @@ screen(
     step_s: float = SCREENING_STEP_S,
     box_km: tuple[float, float, float] = SCREENING_BOX_STARLINK_KM,
     propagator: Sgp4Propagator | None = None,
+    partitioned: bool | None = None,
+    keep_pair: Callable[[SpaceObject, SpaceObject], bool] | None = None,
+    workers: int | None = None,
 ) -> list[Conjunction]
 ```
 
@@ -33,7 +36,10 @@ screen(
   `aegis.ingest.MixedDataSourceError` (import the existing exception).
 - Propagates with `Sgp4Propagator` (existing) unless a propagator is passed.
 - Returns zero or more `Conjunction` objects for pairs that enter the RTN
-  screening box during the window.
+  screening box during the window. An approach is kept when its TCA lies
+  inside the box or a grid sample of it entered the box.
+- A pair that leaves the box and comes back gets one conjunction per
+  approach.
 - Each conjunction has: both objects, TCA, miss distance, relative speed,
   relative RTN state on the primary, both inertial states at TCA,
   `screening_window_start` / `end` set from the requested window.
@@ -46,35 +52,17 @@ screen(
 - If relative speed at TCA is below `LOW_RELATIVE_VELOCITY_KM_S`, set
   `conjunction.metadata["low_relative_velocity"] = True`.
 - `conjunction_id` is stable for the same pair + TCA (same inputs → same id).
+- `keep_pair(obj_a, obj_b)`, if set, must return True for a pair to be
+  retained (the console uses it to skip debris–debris).
+- `partitioned` and `workers` are covered by Step 13; neither changes the
+  result.
 
-## prefilter_pairs
+## screen_table
 
-```
-prefilter_pairs(objects: list[SpaceObject], *, pad_km: float = PERIGEE_APOGEE_PAD_KM) -> list[tuple[int, int]]
-```
-
-Returns index pairs `(i, j)` with `i < j` that survive the
-apogee/perigee filter. Two circular LEO satellites at 550 km survive. A
-550 km object and a 20000 km object do not.
-
-## broadphase
-
-```
-broadphase(
-    grid: PropagationGrid,
-    *,
-    box_km: tuple[float, float, float] = SCREENING_BOX_STARLINK_KM,
-    max_relative_speed_km_s: float = MAX_RELATIVE_SPEED_KM_S,
-) -> list[tuple[int, int, int]]
-```
-
-Returns `(i, j, time_index)` candidates. A pair is a candidate at an epoch
-when the relative position expressed in the primary's RTN frame falls inside
-the box half-widths `(radial, transverse, normal)`, **or** the no-miss gate
-cannot rule the step out: if relative speed could close the remaining
-distance within `step` (use `grid.times_s` spacing; if a single step, use
-`SCREENING_STEP_S`) at `max_relative_speed_km_s`, keep the candidate.
-Invalid SGP4 samples (`grid.valid == False`) are skipped.
+Same search and arguments as `screen` except `keep_pair`, returning a
+columnar `ConjunctionTable` instead of `Conjunction` objects. Use it at
+catalog scale. `len(table)` is the number of approaches and
+`table.to_conjunctions()` gives the same list `screen` would.
 
 ## refine_tca
 

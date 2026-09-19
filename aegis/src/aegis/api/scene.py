@@ -23,7 +23,6 @@ from ..core.conjunction import RiskLevel
 from ..core.state import CovarianceSource
 from ..core.timebase import ensure_utc, seconds_between, shift
 from ..ingest.ops import load_ops_catalog
-from ..ingest.sources import Catalog
 from ..maneuver import plan_maneuvers
 from ..propagation import Sgp4Propagator, default_covariance_model
 from ..risk import assess_catalog
@@ -45,18 +44,6 @@ _HONESTY_RISK_ONLY = (
 _HONESTY_NO_RISK = "No MONITOR+ events in this window."
 _TRACK_DURATION_S = 5400.0
 _AT_RISK = frozenset({RiskLevel.MONITOR, RiskLevel.WATCH, RiskLevel.ACT})
-
-
-def _screening_start(catalog: Catalog) -> datetime:
-    """Earliest ``elements.epoch`` if any object has elements, else ``fetched_at``."""
-    epochs = [
-        obj.elements.epoch
-        for obj in catalog.objects
-        if obj.elements is not None
-    ]
-    if epochs:
-        return min(epochs)
-    return catalog.fetched_at
 
 
 def _iso(moment: datetime) -> str:
@@ -198,7 +185,7 @@ def build_scene(
     """Ingest CelesTrak or the slice, run existing physics, return scene JSON."""
     catalog, fallback = _ingest(live, max_objects)
     objects = list(catalog.objects)
-    start = _screening_start(catalog)
+    start = catalog.screening_start()
 
     conjunctions = screen(
         objects,

@@ -42,7 +42,8 @@ assess_catalog(
 
 `AssessedCatalog` fields:
 
-- `source: str` — the homogeneous `data_source` (`CELESTRAK` or `SYNTHETIC`),
+- `source: str` — the homogeneous `data_source` (`CELESTRAK`, `SPACETRACK` or
+  `SYNTHETIC`),
   or empty string if there were zero conjunctions.
 - `entries: list[RankedConjunction]` sorted by `assessment.probability`
   descending (highest risk first). Ties broken by `conjunction_id`.

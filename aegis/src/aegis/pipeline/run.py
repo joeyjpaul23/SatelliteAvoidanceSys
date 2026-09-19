@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..core.state import CovarianceSource
-from ..ingest.ops import load_debris_slice, load_ops_catalog, load_starlink_slice
 from ..ingest.sources import (
     Catalog,
     DataSource,
@@ -23,12 +21,7 @@ from .errors import PipelineError
 if TYPE_CHECKING:
     from ..ingest.synthetic import SyntheticAuthorization, SyntheticSpec
 
-__all__ = [
-    "run_pipeline",
-    "load_starlink_slice",
-    "load_debris_slice",
-    "load_ops_catalog",
-]
+__all__ = ["run_pipeline"]
 
 _SYNTHETIC_REFUSED = (
     "synthetic data was refused: AEGIS_ALLOW_SYNTHETIC=1 "
@@ -43,37 +36,6 @@ def _normalize_source(source: str) -> str:
             f"(allowed: {', '.join(DataSource.ALL)})"
         )
     return source
-
-
-def _cap_catalog(catalog: Catalog, max_objects: int | None) -> Catalog:
-    if max_objects is None:
-        return catalog
-    if max_objects < 0:
-        raise PipelineError("max_objects must be non-negative")
-    if max_objects >= len(catalog.objects):
-        return catalog
-    return Catalog(
-        source=catalog.source,
-        objects=list(catalog.objects[:max_objects]),
-        fetched_at=catalog.fetched_at,
-        query=catalog.query,
-    )
-
-
-def _screening_start(catalog: Catalog) -> datetime:
-    """Earliest ``elements.epoch`` if any object has elements, else ``fetched_at``.
-
-    Planning ``now`` uses this same epoch. Wall-clock is never the screening
-    start when a catalog epoch is available.
-    """
-    epochs = [
-        obj.elements.epoch
-        for obj in catalog.objects
-        if obj.elements is not None
-    ]
-    if epochs:
-        return min(epochs)
-    return catalog.fetched_at
 
 
 def _ingest_celestrak(group: str, session, cache_dir) -> Catalog:
@@ -174,9 +136,12 @@ def run_pipeline(
     else:
         catalog = _ingest_synthetic(authorization, synthetic_spec)
 
-    catalog = _cap_catalog(catalog, config.max_objects)
+    try:
+        catalog = catalog.head(config.max_objects)
+    except ValueError as error:
+        raise PipelineError(str(error)) from error
     objects = list(catalog.objects)
-    start = _screening_start(catalog)
+    start = catalog.screening_start()
 
     conjunctions = screen(
         objects,

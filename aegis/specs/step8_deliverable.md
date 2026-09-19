@@ -19,7 +19,7 @@ Export `write_plan_json`, `write_plan_text`, `plan_artifact` from
 
 Required keys:
 
-- `source` — `CELESTRAK` or `SYNTHETIC`
+- `source` — `CELESTRAK`, `SPACETRACK` or `SYNTHETIC`
 - `covariance_source` — must be `SYNTHETIC_TLE` for the default model
 - `object_count`
 - `generated_at` — ISO UTC string
@@ -47,8 +47,8 @@ ends in `.txt` / `.md`, write text instead.
 
 ## LIMITATIONS.md
 
-Create `/Users/joeypaul/PIGNN-SAT/docs/LIMITATIONS.md` (repo `docs/`,
-the path referenced from `constants.py`).
+Create `docs/LIMITATIONS.md` at the repo root (the path referenced from
+`constants.py`).
 
 Must state, in plain language (tester will search for these ideas, not
 exact poetry):
@@ -60,8 +60,9 @@ exact poetry):
 4. The maneuver plan is a prototype / research output, not flight
    commands.
 5. Synthetic catalogs are opt-in (`AEGIS_ALLOW_SYNTHETIC` +
-   authorization) and must not be confused with CelesTrak data.
-6. CelesTrak failure must not silently become synthetic data.
+   authorization) and must not be confused with real (CelesTrak or
+   Space-Track) data.
+6. A real-source failure must not silently become synthetic data.
 
 ## What this step does not do
 

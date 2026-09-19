@@ -59,15 +59,10 @@ Returned `Conjunction`:
   screening convention: relative = other in primary RTN, i.e.
   `R.T @ (r_secondary - r_primary)` if primary is object 1)
 - `conjunction_id` stable from the two ids + TCA
-- `data_source` on both objects: if unset by CDM, use `"CELESTRAK"` only
-  when a field says so; otherwise use `"CDM"` — **wait**: DataSource only
-  allows CELESTRAK | SYNTHETIC. Do **not** invent a third catalog source
-  that breaks the wall.
-
-  Instead: set `object.data_source = DataSource.CELESTRAK` and
-  `object.metadata["origin"] = "CDM"` so mixed-source checks still see a
-  homogeneous CELESTRAK-labeled pair from a CDM file. Document this.
-  Do not mark them SYNTHETIC.
+- `data_source` on both objects: `DataSource.CELESTRAK`, with
+  `object.metadata["origin"] = "CDM"`, so mixed-source checks see a
+  homogeneous real pair from a CDM file. Do not invent a separate CDM
+  catalog source and do not mark them SYNTHETIC. Document this.
 
 `read_cdm` must not call `generate_synthetic`.
 

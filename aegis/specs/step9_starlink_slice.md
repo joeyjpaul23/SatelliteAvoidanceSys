@@ -12,7 +12,7 @@ objects, plus a thin helper so the existing pipeline can run on it.
 
 Path (exact):
 
-`/Users/joeypaul/PIGNN-SAT/aegis/tests/fixtures/starlink_slice.tle`
+`aegis/tests/fixtures/starlink_slice.tle`
 
 - 3-line TLE groups (name, line1, line2)
 - At least **20** objects, at most **80**

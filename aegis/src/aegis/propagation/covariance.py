@@ -39,8 +39,6 @@ every coefficient named and sourced so it can be argued with.
 
 from __future__ import annotations
 
-import numpy as np
-
 from ..core.objects import ObjectType, SpaceObject
 from ..core.state import Covariance, CovarianceSource
 
@@ -125,26 +123,7 @@ class TleCovarianceModel:
             radial, transverse, normal, source=CovarianceSource.SYNTHETIC_TLE
         )
 
-    def covariance_at(
-        self, obj: SpaceObject, epoch_age_days: float, lead_time_days: float
-    ) -> Covariance:
-        """Covariance at a future epoch, accounting for element set age."""
-        return self.covariance(obj, epoch_age_days + lead_time_days)
-
 
 def default_covariance_model() -> TleCovarianceModel:
     """The model used unless a caller supplies its own."""
     return TleCovarianceModel()
-
-
-def scale_for_confidence(covariance: Covariance, factor: float) -> Covariance:
-    """Inflate a covariance by an empirical realism factor.
-
-    Operationally derived covariances are known to be optimistic and
-    inflation is standard practice. Be aware of the direction of travel
-    though: if an event already sits in the dilution regime, inflating the
-    covariance *lowers* the computed probability. Inflation is therefore not
-    automatically the conservative choice, which is why the assessor reports
-    a dilution flag alongside every result.
-    """
-    return covariance.scaled(factor)

@@ -1,8 +1,8 @@
-# AEGIS console UI — plan (review before build)
+# AEGIS console UI
 
-Decisions from the operator (2026-08-30):
+Decisions from the operator (2026-08-30; catalog source updated 2026-09-18):
 
-- **Catalog:** live CelesTrak Starlink **plus overlapping catalog debris** (`NAME=DEB`) when the network works; **cached slices** if it fails. Never synthetic as a fallback.
+- **Catalog:** live Starlink **plus overlapping catalog debris**: from Space-Track when `SPACETRACK_USER` / `SPACETRACK_PASS` are set, otherwise (or if Space-Track fails) from CelesTrak (`NAME=DEB` for debris); **cached slices** if the live fetch fails. Never synthetic as a fallback.
 - **Horizon:** **3 days** (`SCREENING_HORIZON_S`). Not 90 minutes.
 - **Scope:** visualize everything the backend already computes (tracks, risk, covariance, screening geometry, flags, plan, provenance).
 - **Scale:** object-count slider, default **40** (split ~half Starlink / half debris), hard cap **200**. Slider is how many objects are **screened**. The globe and lists only show objects in MONITOR / WATCH / ACT events.
@@ -34,7 +34,8 @@ A single local web app: Earth globe, satellites at SGP4 TEME positions for the c
 - Screening-box half-widths in the selected event inspector (2 × 44 × 51 km Starlink default) as numbers, not a giant 3D box on every pair.
 - Selected event: Pc (Alfano), Chan cross-check if present, miss, TCA, relative speed, Mahalanobis, dilution / remediated / short-encounter / low-rel-vel flags, `covariance_source`.
 - Maneuver plan: burns as short RTN ticks on the sat; unresolved table sorted by shortfall; `plan.summary()`.
-- Provenance strip: `source` (CELESTRAK), `query`, `fetched_at`, live vs slice fallback, `SYNTHETIC_TLE` honesty line. If live fetch failed, show `FALLBACK SLICE` — never imply live.
+- Provenance strip: `source` (SPACETRACK or CELESTRAK), `query`, `fetched_at`, live vs slice fallback, `SYNTHETIC_TLE` honesty line. If live fetch failed, show `FALLBACK SLICE` — never imply live.
+- Validation panel: Space-Track public CDMs (18 SDS) beside AEGIS's own result for each pair, from `GET /api/public-cdms`.
 
 Synthetic catalog is **not** in the default path. A hidden/advanced control may exist only if `AEGIS_ALLOW_SYNTHETIC=1` **and** the user ticks an explicit acknowledge box (same dual gate). Off by default.
 
@@ -42,7 +43,7 @@ Synthetic catalog is **not** in the default path. A hidden/advanced control may 
 
 ```
 browser (vanilla JS + Three.js r160+, no React)
-    GET /api/scene
+    GET /api/scene, GET /api/public-cdms
 FastAPI  aegis.api
     run_pipeline / screen / assess_catalog / plan_maneuvers
     Sgp4Propagator.propagate_grid
@@ -59,8 +60,8 @@ Query: `max_objects` (1–200, default 40), `duration_s` (default `SCREENING_HOR
 
 Ingest:
 
-1. If `live=1`, try `fetch_celestrak("starlink")` and `fetch_celestrak("DEB", field="NAME")`. On `CelesTrakError` / network fail for a half → that half’s committed slice (`starlink_slice.tle` / `debris_slice.tle`) and set `fallback="slice"`.
-2. Keep debris whose altitude band can meet the Starlink slice (same pad as the apogee/perigee prefilter). Cap ~half fleet / ~half debris.
+1. If `live=1` and Space-Track credentials are set, fetch both halves from Space-Track (`fetch_fleet()`, `fetch_debris()`). If they are unset or Space-Track fails, try `fetch_celestrak("starlink", fmt="json")` and `fetch_celestrak("DEB", fmt="json", field="NAME")`. On `CelesTrakError` / network fail for a half → that half’s committed slice (`starlink_slice.tle` / `debris_slice.tle`) and set `fallback="slice"`.
+2. Keep debris whose altitude band can meet the Starlink slice (padded by `PERIGEE_APOGEE_PAD_KM`). Cap ~half fleet / ~half debris.
 3. Never call `generate_synthetic` on this path.
 4. Tag Starlink as maneuverable PAYLOAD; debris as DEBRIS (not maneuverable).
 
@@ -85,6 +86,8 @@ Positions in **km**, TEME as used internally (no silent frame conversion). Front
 
 - `GET /api/health` → `{ok: true, version}`
 - `GET /api/scene` as above
+- `GET /api/public-cdms` → Space-Track public CDMs with AEGIS's independent result per pair (needs Space-Track credentials); feeds the validation panel.
+- `GET /api/starlink-alerts` → CelesTrak SOCRATES candidates involving Starlink, filtered and paginated. Not used by the console.
 
 No extra physics.
 
@@ -92,7 +95,7 @@ No extra physics.
 
 - Background `#07080A`. Type: `IBM Plex Mono` + `IBM Plex Sans` (or Inter + JetBrains Mono). Tight tracking, small caps for labels (`TCA`, `PC`, `RTN`).
 - Hairline borders `#2A2D32`, text `#E6E4DF`, muted `#8B8E93`. No purple, no glassmorphism, no gradient orbs, no “mission control HUD” clipart.
-- Left: globe (majority). Right: 320–380px rail — SOURCE, OBJECTS, EVENTS, PLAN. Numbers in tabular lining.
+- Left: globe (majority). Right: 320–380px rail — SOURCE, CATALOG, SELECTED, EVENTS, VALIDATION, PLAN. Numbers in tabular lining.
 - Wordmark: `AEGIS` + `CONJUNCTION` in 11px, not a logo.
 - Earth: NASA Blue Marble or similar **textured** sphere + simple atmosphere limb; stars as a sparse point field. Satellites: 1–2 px nodes + thin track. No cartoon ISS models.
 - Interaction: click sat → select; click event row → highlight both tracks + TCA chord. Time slider scrubs the grid.
@@ -112,11 +115,3 @@ No browser E2E required for the loop; orchestrator verifies in the browser after
 ## Out of scope
 
 GNN, live TraCSS, authenticating Starlink Space Safety, mobile layout, React rewrite.
-
-## Build order
-
-1. `aegis.api.color` + scene DTO from existing pipeline.
-2. FastAPI `/api/health`, `/api/scene`, `/`.
-3. Three.js console UI.
-4. Tester from this spec; analyzer/builder loop until green.
-5. Orchestrator browser pass: slider, fallback honesty, click event, colors.

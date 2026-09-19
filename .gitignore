@@ -6,10 +6,6 @@
 *.egg-info/
 .venv/
 
-# Kelvins CSVs/zips exceed GitHub's 100MB file limit
-archive/kelvins-agent-b/data/*.csv
-archive/kelvins-agent-b/data/*.zip
-archive/kelvins-agent-b/data/extracted/
 .gstack/
 
 # Generated research artifacts: benchmark reports, ML datasets, checkpoints,

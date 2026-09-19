@@ -1,7 +1,7 @@
-"""Hundreds-object screening / blocked-propagation contract (Step 13).
+"""Hundreds-object screening contract (Step 13).
 
-Uses the public ``aegis.screening``, ``aegis.propagation``, ``aegis.ingest``,
-and ``aegis.constants`` surfaces. Does not import screening internals.
+Uses the public ``aegis.screening``, ``aegis.ingest``, and ``aegis.constants``
+surfaces. Does not import screening internals.
 Synthetic opt-in is set only inside these tests.
 """
 
@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import time
 
-import numpy as np
 import pytest
 
 import aegis.constants as constants
 from aegis.ingest import SyntheticAuthorization, SyntheticSpec, generate_synthetic
-from aegis.propagation.propagator import Sgp4Propagator
 from aegis.screening import screen
 
 _TWELVE_SAT = SyntheticSpec(n_planes=2, sats_per_plane=6)
@@ -97,38 +95,6 @@ def test_screen_partitioned_matches_unpartitioned_conjunctions(
         )
 
 
-def test_propagate_grid_blocked_matches_unblocked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog = _generate(
-        monkeypatch,
-        SyntheticSpec(n_planes=1, sats_per_plane=3, include_known_conjunction_triple=False),
-    )
-    objects = list(catalog)
-    first = catalog.objects[0]
-    assert first.elements is not None
-    propagator = Sgp4Propagator(objects)
-    start = first.elements.epoch
-    duration_s = 3600.0
-    step_s = 120.0
-
-    unblocked = propagator.propagate_grid(start, duration_s, step_s, block_duration_s=None)
-    blocked = propagator.propagate_grid(start, duration_s, step_s, block_duration_s=1800.0)
-
-    assert blocked.n_times == unblocked.n_times
-    np.testing.assert_allclose(blocked.times_s, unblocked.times_s)
-    assert blocked.object_ids == unblocked.object_ids
-
-    both_valid = unblocked.valid & blocked.valid
-    assert bool(both_valid.any()), "blocked and unblocked grids must share valid samples"
-    np.testing.assert_allclose(
-        unblocked.positions_km[both_valid],
-        blocked.positions_km[both_valid],
-        rtol=1e-9,
-        atol=1e-9,
-    )
-
-
 def test_screen_two_hundred_sat_scale_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
     catalog = _generate(monkeypatch, _TWO_HUNDRED_SAT)
     assert len(catalog) == 200
@@ -145,7 +111,7 @@ def test_screen_two_hundred_sat_scale_smoke(monkeypatch: pytest.MonkeyPatch) -> 
     assert elapsed_s < 90.0, f"200-sat screen took {elapsed_s:.1f}s (limit 90s)"
 
 
-def test_partitioned_broadphase_does_not_drop_unpartitioned_pairs(
+def test_partitioned_screen_does_not_drop_unpartitioned_pairs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _generate(monkeypatch, _TWELVE_SAT)

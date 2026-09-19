@@ -16,8 +16,6 @@ faith.
 
 from __future__ import annotations
 
-import numpy as np
-
 from ..constants import (
     LOW_RELATIVE_VELOCITY_KM_S,
     MAX_SHORT_ENCOUNTER_DURATION_S,
@@ -221,24 +219,3 @@ def _apply_short_encounter_checks(
                 f"estimated encounter duration {duration:.0f} s exceeds the "
                 f"short-encounter limit; consider a 3D treatment"
             )
-
-
-def screen_by_upper_bound(
-    projection: ProjectedEncounter, threshold: float
-) -> bool:
-    """Cheap conservative test: could this event possibly exceed ``threshold``?
-
-    Uses the circumscribing-square upper bound, which is a strict overestimate
-    and costs two error function evaluations rather than a quadrature. Returns
-    ``False`` only when the event provably cannot reach the threshold, so it
-    is safe to skip the full computation for those.
-    """
-    bound = chan.collision_probability_equal_area_square(
-        projection.sigma_major,
-        projection.sigma_minor,
-        projection.miss_x,
-        projection.miss_z,
-        projection.hard_body_radius,
-        circumscribing=True,
-    )
-    return bound >= threshold

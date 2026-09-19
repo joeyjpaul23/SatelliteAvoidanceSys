@@ -9,13 +9,7 @@ Every other package depends on ``core``; ``core`` depends on nothing but
 rest of the codebase easy to reason about.
 """
 
-from .conjunction import (
-    Conjunction,
-    ConjunctionEvent,
-    RiskAssessment,
-    RiskLevel,
-    cumulative_probability,
-)
+from .conjunction import Conjunction, RiskAssessment, RiskLevel
 from .frames import (
     EncounterFrame,
     build_encounter_frame,
@@ -44,7 +38,6 @@ from .timebase import (
 
 __all__ = [
     "Conjunction",
-    "ConjunctionEvent",
     "Covariance",
     "CovarianceSource",
     "EncounterFrame",
@@ -61,7 +54,6 @@ __all__ = [
     "SpaceObject",
     "StateVector",
     "build_encounter_frame",
-    "cumulative_probability",
     "enforce_tca",
     "ensure_utc",
     "format_epoch",

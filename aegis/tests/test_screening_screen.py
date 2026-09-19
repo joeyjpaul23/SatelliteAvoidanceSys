@@ -23,7 +23,7 @@ from aegis.ingest import (
     generate_synthetic,
 )
 from aegis.propagation.propagator import Sgp4Propagator
-from aegis.screening import ScreeningError, broadphase, prefilter_pairs, refine_tca, screen
+from aegis.screening import ScreeningError, refine_tca, screen
 
 _EPOCH = datetime(2010, 1, 1, tzinfo=timezone.utc)
 _FLEET = Operator(identifier="FLEET", name="Fleet", maneuverable=True)
@@ -111,8 +111,6 @@ def _known_catalog(monkeypatch: pytest.MonkeyPatch):
 
 def test_screening_public_exports() -> None:
     assert callable(screen)
-    assert callable(prefilter_pairs)
-    assert callable(broadphase)
     assert callable(refine_tca)
     assert isinstance(ScreeningError, type)
 

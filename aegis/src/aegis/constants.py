@@ -28,7 +28,7 @@ R_EARTH_KM = 6378.137
 EARTH_FLATTENING = 1.0 / 298.257223563
 
 #: Second zonal harmonic. Drives nodal regression and the short-period radial
-#: oscillation that forces padding in the apogee/perigee prefilter.
+#: oscillation that forces padding in the perigee/apogee band check.
 J2 = 1.08262668e-3
 
 #: Standard gravity, m/s^2. Used only in the Tsiolkovsky rocket equation.
@@ -134,10 +134,11 @@ SCREENING_STEP_S = 30.0
 #: Bounding relative speed for the no-miss gate, km/s. Two circular LEO orbits
 #: meeting head-on give 15.4 km/s; 19 km/s covers eccentric objects near
 #: perigee. This is what makes the coarse gate provably safe rather than
-#: heuristic (see screening/broadphase.py).
+#: heuristic (see screening/sweep.py).
 MAX_RELATIVE_SPEED_KM_S = 19.0
 
-#: Padding for the apogee/perigee prefilter, km. TLE elements are Brouwer mean
+#: Padding for the perigee/apogee band check, km (screening sweep and the
+#: ops catalog's debris trim). TLE elements are Brouwer mean
 #: elements; the osculating radius oscillates about the mean by the J2
 #: short-period term (~9-10 km at a = 7000 km) plus secular drift over a
 #: multi-day window. Source: Woodburn, Coppola & Stoner, AAS 09-372.
@@ -152,16 +153,10 @@ LOW_RELATIVE_VELOCITY_KM_S = 0.5
 #: suspect and the result should be flagged for 3D treatment, seconds.
 MAX_SHORT_ENCOUNTER_DURATION_S = 500.0
 
-#: Catalog size at which ``screen(..., partitioned=None)`` turns on the
-#: conservative spatial-hash broad phase. Below this the vectorised
-#: all-pairs path remains the default so small-catalog results are unchanged.
+#: Catalog size at which ``screen(..., partitioned=None)`` generates
+#: candidate pairs from a k-d tree instead of all pairs. Both give the same
+#: result.
 SCREENING_PARTITION_MIN_OBJECTS = 50
-
-#: Propagation time-block length, seconds. ``screen`` passes this to
-#: ``propagate_grid`` when the catalog has at least
-#: :data:`SCREENING_PARTITION_MIN_OBJECTS` objects so a long window is not
-#: materialised as one dense ``(N, T, 3)`` array.
-SCREENING_BLOCK_DURATION_S = 1800.0
 
 
 # ---------------------------------------------------------------------------

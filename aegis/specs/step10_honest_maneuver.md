@@ -1,15 +1,11 @@
 # Step 10 contract: physically honest maneuvers
 
-Tester writes tests from this document. Builder must not edit `tests/`
-**except** the tester (not the builder) may update the outdated Step 4
-test `test_plan_maneuvers_two_sat_along_track_separable` because this
-contract **supersedes** the requirement that an already-safe pair must
-emit a burn.
+Tester writes tests from this document. Builder must not edit `tests/`.
 
 ## 1. No token burns
 
-Remove `_maybe_emit_token_along_track` and any equivalent “emit a 1e-6
-km/s burn when the LP chose dv=0.”
+The planner never emits a token burn (e.g. 1e-6 km/s) when the LP chose
+dv=0.
 
 Rules:
 
@@ -65,8 +61,7 @@ the original TCA after the burn:
 Implementation note (builder): a pure mean-anomaly shift `ΔM = Δy/a` is
 acceptable **if** it satisfies the tests above. Changing mean motion /
 semi-major axis to capture the secular CW term is also acceptable.
-Document the chosen mapping in the `rescreen` module docstring. Do not
-leave the token-burn function in the planner.
+Document the chosen mapping in the `rescreen` module docstring.
 
 ## 4. Slack path unchanged
 

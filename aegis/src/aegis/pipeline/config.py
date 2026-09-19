@@ -50,7 +50,7 @@ class PipelineResult:
     Attributes
     ----------
     source
-        ``CELESTRAK`` or ``SYNTHETIC``.
+        ``CELESTRAK``, ``SPACETRACK`` or ``SYNTHETIC``.
     catalog
         The catalog that was screened (after ``max_objects`` slicing).
     assessed
