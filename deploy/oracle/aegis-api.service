@@ -1,0 +1,43 @@
+[Unit]
+Description=AEGIS operations console (127.0.0.1:8000, reach it over an SSH tunnel)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=aegis
+Group=aegis
+EnvironmentFile=/etc/aegis/aegis.env
+Environment=XDG_CACHE_HOME=/var/cache/aegis
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/aegis/app/aegis
+ExecStart=/opt/aegis/venv/bin/python -m aegis.api
+Restart=on-failure
+RestartSec=5
+
+# CacheDirectory= creates /var/cache/aegis owned by aegis and is the one
+# writable path left under ProtectSystem=strict.
+CacheDirectory=aegis
+CacheDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

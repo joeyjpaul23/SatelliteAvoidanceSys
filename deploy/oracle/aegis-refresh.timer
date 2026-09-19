@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the AEGIS cache warm-up hourly, off the top and bottom of the hour
+
+[Timer]
+# Space-Track asks clients to avoid :00 and :30. Fires between :17 and :22.
+OnCalendar=*-*-* *:17:00
+RandomizedDelaySec=5min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
