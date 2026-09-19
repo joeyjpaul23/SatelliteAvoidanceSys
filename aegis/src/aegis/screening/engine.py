@@ -1,31 +1,28 @@
-"""Catalog-level screening: prefilter, propagate, broad phase, refine TCA."""
+"""Catalog-level screening: sweep, refine, accept, as columns or as objects."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime
 
 import numpy as np
 
 from ..constants import (
-    SCREENING_BLOCK_DURATION_S,
     SCREENING_BOX_STARLINK_KM,
     SCREENING_PARTITION_MIN_OBJECTS,
     SCREENING_STEP_S,
 )
 from ..core.conjunction import Conjunction
-from ..core.frames import rtn_to_eci_matrix
 from ..core.objects import SpaceObject
 from ..core.timebase import ensure_utc, shift
 from ..ingest import MixedDataSourceError
 from ..propagation.propagator import PropagationError, Sgp4Propagator
-from .broadphase import broadphase, broadphase_partitioned
 from .errors import ScreeningError
-from .geometry import assign_primary, inside_box
-from .prefilter import prefilter_pairs
-from .tca import refine_tca
+from .results import ConjunctionTable, Rows, accept, dedupe
+from .sweep import make_executor, make_spec, parallel_workers, run_blocks, use_parallel
 
-__all__ = ["screen"]
+__all__ = ["screen", "screen_table"]
 
 
 def _reject_mixed_sources(objects: list[SpaceObject]) -> None:
@@ -38,75 +35,91 @@ def _reject_mixed_sources(objects: list[SpaceObject]) -> None:
         )
 
 
-def _cluster_time_indices(time_indices: list[int]) -> list[list[int]]:
-    """Split a sorted list of epochs into contiguous runs."""
-    if not time_indices:
-        return []
-    ordered = sorted(time_indices)
-    clusters: list[list[int]] = [[ordered[0]]]
-    for time_index in ordered[1:]:
-        if time_index <= clusters[-1][-1] + 1:
-            clusters[-1].append(time_index)
-        else:
-            clusters.append([time_index])
-    return clusters
+def screen_table(
+    objects: list[SpaceObject],
+    start: datetime,
+    duration_s: float,
+    *,
+    step_s: float = SCREENING_STEP_S,
+    box_km: tuple[float, float, float] = SCREENING_BOX_STARLINK_KM,
+    propagator: Sgp4Propagator | None = None,
+    partitioned: bool | None = None,
+    workers: int | None = None,
+) -> ConjunctionTable:
+    """Every close approach that enters the RTN screening box, as columns.
 
+    Use this at catalog scale; :func:`screen` builds ``Conjunction`` objects
+    from it. Intra-fleet pairs are not excluded. Mixed ``data_source``
+    values raise :class:`~aegis.ingest.MixedDataSourceError`.
 
-def _best_guess_epoch(grid, index_a: int, index_b: int, cluster: list[int]) -> datetime:
-    """Grid epoch of minimum inertial range inside a candidate cluster."""
-    best_index = cluster[0]
-    best_range = np.inf
-    for time_index in cluster:
-        if not (grid.valid[index_a, time_index] and grid.valid[index_b, time_index]):
-            continue
-        delta = grid.positions_km[index_a, time_index] - grid.positions_km[index_b, time_index]
-        separation = float(np.linalg.norm(delta))
-        if separation < best_range:
-            best_range = separation
-            best_index = time_index
-    return grid.epoch_at(best_index)
+    Detection streams time blocks through a chord gate
+    (:mod:`~aegis.screening.sweep`), so no pair that can reach the box is
+    dropped and the full grid is never held in memory. Each approach is
+    refined in batches (:mod:`~aegis.screening.batch_tca`) and kept when its
+    TCA (the local minimum of relative distance) lies inside either object's
+    box, each box aligned with that object's own orbit (RTN). This is SpaceX
+    Space Safety's close-approach definition, and it does not depend on the
+    grid step. A pair that leaves the boxes and comes back gets one row per
+    approach.
 
+    ``partitioned`` picks candidate-pair generation: a k-d tree (True) or all
+    pairs (False); ``None`` uses the tree from
+    :data:`~aegis.constants.SCREENING_PARTITION_MIN_OBJECTS` objects. Both
+    give the same result.
 
-def _cluster_entered_box(
-    grid,
-    index_a: int,
-    index_b: int,
-    cluster: list[int],
-    box_km: tuple[float, float, float],
-    object_a: SpaceObject,
-    object_b: SpaceObject,
-    rotation_cache: dict[tuple[int, int], np.ndarray] | None = None,
-) -> bool:
-    """True if any cluster sample lies inside the assigned primary's RTN box.
-
-    ``rotation_cache`` memoises the primary's RTN-to-ECI matrix by
-    ``(object index, time index)``. The matrix depends only on that object's
-    own state, but every pair the object belongs to recomputes it: in a
-    26-object catalog each object appears in 25 pairs, so the cache removes
-    about 25x of redundant work from the hottest path in screening. Values are
-    identical either way -- this is memoisation, not approximation.
+    ``workers`` caps parallel worker processes (default ``AEGIS_WORKERS`` or
+    the CPU count). Catalogs too small to benefit run in-process. Workers
+    are spawned, so a script screening a large catalog must call this under
+    ``if __name__ == "__main__":`` (every AEGIS entry point does).
     """
-    primary, _secondary = assign_primary(object_a, object_b)
-    primary_index = index_a if primary is object_a else index_b
-    other_index = index_b if primary_index == index_a else index_a
-    for time_index in cluster:
-        if not (grid.valid[primary_index, time_index] and grid.valid[other_index, time_index]):
-            continue
-        key = (primary_index, time_index)
-        rotation = None if rotation_cache is None else rotation_cache.get(key)
-        if rotation is None:
-            rotation = rtn_to_eci_matrix(
-                grid.positions_km[primary_index, time_index],
-                grid.velocities_km_s[primary_index, time_index],
-            )
-            if rotation_cache is not None:
-                rotation_cache[key] = rotation
-        relative_rtn = rotation.T @ (
-            grid.positions_km[other_index, time_index] - grid.positions_km[primary_index, time_index]
-        )
-        if inside_box(relative_rtn, box_km):
-            return True
-    return False
+    _reject_mixed_sources(objects)
+    if duration_s < 0.0:
+        raise ScreeningError("screening duration must be non-negative")
+    if step_s <= 0.0:
+        raise ScreeningError("screening step must be positive")
+    start = ensure_utc(start)
+    window_end = shift(start, duration_s)
+    if len(objects) < 2:
+        return ConjunctionTable(list(objects), start, window_end, Rows.concat([]))
+    use_tree = (
+        len(objects) >= SCREENING_PARTITION_MIN_OBJECTS if partitioned is None else bool(partitioned)
+    )
+    if propagator is None:
+        try:
+            propagator = Sgp4Propagator(objects)
+        except PropagationError as error:
+            raise ScreeningError(str(error)) from error
+    catalog = propagator.objects
+
+    spec = make_spec(
+        propagator,
+        start,
+        duration_s,
+        step_s,
+        box_km,
+        requested_ids={obj.object_id for obj in objects},
+        use_tree=use_tree,
+    )
+    n_workers = parallel_workers(workers)
+    parallel = use_parallel(len(catalog), spec.n_samples, workers)
+    pool = make_executor(catalog, spec, n_workers) if parallel else nullcontext()
+    with pool as executor:
+        rows, stitched = run_blocks(propagator, spec, executor=executor, workers=n_workers)
+    # Approaches that crossed a block edge were stitched here; refine them in-process.
+    live = stitched.possible | stitched.entered
+    rows = Rows.concat(
+        [
+            rows,
+            accept(
+                propagator,
+                spec,
+                stitched.index_a[live],
+                stitched.index_b[live],
+                stitched.sample[live],
+            ),
+        ]
+    )
+    return ConjunctionTable(catalog, start, window_end, dedupe(rows, spec))
 
 
 def screen(
@@ -119,99 +132,33 @@ def screen(
     propagator: Sgp4Propagator | None = None,
     partitioned: bool | None = None,
     keep_pair: Callable[[SpaceObject, SpaceObject], bool] | None = None,
+    workers: int | None = None,
 ) -> list[Conjunction]:
-    """Find close approaches that enter the RTN screening box.
+    """Close approaches that enter the RTN screening box, as ``Conjunction`` objects.
 
-    Intra-fleet pairs are not excluded. Mixed ``data_source`` values raise
-    :class:`~aegis.ingest.MixedDataSourceError`.
-
-    ``partitioned is None`` turns the conservative spatial-hash broad
-    phase on when ``len(objects) >= SCREENING_PARTITION_MIN_OBJECTS``.
-    Catalogs at that size also propagate in
-    :data:`~aegis.constants.SCREENING_BLOCK_DURATION_S` blocks.
-
-    ``keep_pair(obj_a, obj_b)`` if set must return True to retain a
-    prefilter pair. Used by the console to skip debris–debris.
+    Same search as :func:`screen_table`. ``keep_pair(obj_a, obj_b)`` if set
+    must return True to retain a pair; the console uses it to skip
+    debris–debris.
     """
-    _reject_mixed_sources(objects)
     if len(objects) < 2:
+        _reject_mixed_sources(objects)
         return []
-    if duration_s < 0.0:
-        raise ScreeningError("screening duration must be non-negative")
-    if step_s <= 0.0:
-        raise ScreeningError("screening step must be positive")
-
-    start = ensure_utc(start)
-    window_end = shift(start, duration_s)
-    n_objects = len(objects)
-    use_partition = (
-        n_objects >= SCREENING_PARTITION_MIN_OBJECTS if partitioned is None else bool(partitioned)
+    table = screen_table(
+        objects,
+        start,
+        duration_s,
+        step_s=step_s,
+        box_km=box_km,
+        propagator=propagator,
+        partitioned=partitioned,
+        workers=workers,
     )
-    block_duration_s = (
-        SCREENING_BLOCK_DURATION_S if n_objects >= SCREENING_PARTITION_MIN_OBJECTS else None
-    )
-
-    if propagator is None:
-        try:
-            propagator = Sgp4Propagator(objects)
-        except PropagationError as error:
-            raise ScreeningError(str(error)) from error
-
-    grid_index = {object_id: i for i, object_id in enumerate(propagator.object_ids)}
-    surviving: set[tuple[int, int]] = set()
-    for index_a, index_b in prefilter_pairs(objects):
-        if keep_pair is not None and not keep_pair(objects[index_a], objects[index_b]):
-            continue
-        grid_a = grid_index.get(objects[index_a].object_id)
-        grid_b = grid_index.get(objects[index_b].object_id)
-        if grid_a is None or grid_b is None:
-            continue
-        if grid_a > grid_b:
-            grid_a, grid_b = grid_b, grid_a
-        surviving.add((grid_a, grid_b))
-    if not surviving:
-        return []
-
-    try:
-        grid = propagator.propagate_grid(
-            start, duration_s, step_s, block_duration_s=block_duration_s
-        )
-    except PropagationError as error:
-        raise ScreeningError(str(error)) from error
-
-    sieve = broadphase_partitioned if use_partition else broadphase
-    by_pair: dict[tuple[int, int], list[int]] = {}
-    for index_a, index_b, time_index in sieve(grid, box_km=box_km):
-        pair = (index_a, index_b)
-        if pair not in surviving:
-            continue
-        by_pair.setdefault(pair, []).append(time_index)
-
-    conjunctions: list[Conjunction] = []
-    seen_ids: set[str] = set()
-    rotation_cache: dict[tuple[int, int], np.ndarray] = {}
-    for (index_a, index_b), time_indices in by_pair.items():
-        for cluster in _cluster_time_indices(time_indices):
-            t_guess = _best_guess_epoch(grid, index_a, index_b, cluster)
-            conjunction = refine_tca(propagator, index_a, index_b, t_guess)
-            entered = inside_box(conjunction.relative_position_rtn_km, box_km) or _cluster_entered_box(
-                grid,
-                index_a,
-                index_b,
-                cluster,
-                box_km,
-                propagator.objects[index_a],
-                propagator.objects[index_b],
-                rotation_cache,
-            )
-            if not entered:
-                continue
-            conjunction.screening_window_start = start
-            conjunction.screening_window_end = window_end
-            if conjunction.conjunction_id in seen_ids:
-                continue
-            seen_ids.add(conjunction.conjunction_id)
-            conjunctions.append(conjunction)
-
-    conjunctions.sort(key=lambda item: (item.tca, item.conjunction_id))
-    return conjunctions
+    if keep_pair is not None and len(table):
+        verdicts: dict[tuple[int, int], bool] = {}
+        keep = np.ones(len(table), dtype=bool)
+        for position, pair in enumerate(zip(table.rows.primary.tolist(), table.rows.secondary.tolist())):
+            if pair not in verdicts:
+                verdicts[pair] = bool(keep_pair(table.catalog[pair[0]], table.catalog[pair[1]]))
+            keep[position] = verdicts[pair]
+        table = ConjunctionTable(table.catalog, table.start, table.window_end, table.rows.take(np.flatnonzero(keep)))
+    return table.to_conjunctions()

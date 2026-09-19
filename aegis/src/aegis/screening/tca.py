@@ -16,7 +16,7 @@ from ..propagation.propagator import PropagationError, Sgp4Propagator
 from .errors import ScreeningError
 from .geometry import assign_primary, conjunction_id, relative_rtn
 
-__all__ = ["refine_tca"]
+__all__ = ["refine_tca", "refine_tca_states"]
 
 #: Coarse bracket half-width, in screening steps.
 _COARSE_HALF_STEPS = 4
@@ -266,6 +266,30 @@ def refine_tca(
     except (AttributeError, IndexError) as error:
         raise ScreeningError(f"invalid object indices {index_a}, {index_b}") from error
 
+    t_refined, state_a, state_b = refine_tca_states(propagator, index_a, index_b, t_guess)
+    primary, secondary = assign_primary(object_a, object_b)
+    if primary is object_a:
+        primary_state, secondary_state = state_a, state_b
+    else:
+        primary_state, secondary_state = state_b, state_a
+
+    return _build_conjunction(primary, secondary, primary_state, secondary_state, t_refined)
+
+
+def refine_tca_states(
+    propagator: Sgp4Propagator,
+    index_a: int,
+    index_b: int,
+    t_guess: datetime,
+) -> tuple[datetime, StateVector, StateVector]:
+    """The search behind :func:`refine_tca`: refined TCA and both objects' states.
+
+    Returns plain states rather than a :class:`Conjunction` so parallel
+    workers can hand results back without pickling catalog objects.
+    """
+    if index_a == index_b:
+        raise ScreeningError("refine_tca requires two distinct object indices")
+
     t_guess = ensure_utc(t_guess)
     step_s = float(SCREENING_STEP_S)
 
@@ -281,10 +305,4 @@ def refine_tca(
         t_refined = t_guess
         state_a, state_b = state_guess_a, state_guess_b
 
-    primary, secondary = assign_primary(object_a, object_b)
-    if primary is object_a:
-        primary_state, secondary_state = state_a, state_b
-    else:
-        primary_state, secondary_state = state_b, state_a
-
-    return _build_conjunction(primary, secondary, primary_state, secondary_state, t_refined)
+    return t_refined, state_a, state_b

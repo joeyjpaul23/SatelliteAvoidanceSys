@@ -49,12 +49,19 @@ G0_M_S2 = 9.80665
 # separation is therefore both the most trustworthy and the most
 # discriminating dimension, which is why it gets the tightest gate.
 
-#: Starlink Space Safety Platform's published screening box.
+#: Starlink Space Safety Platform's published screening box: half-widths
+#: 2 km radial, 44 km along-track, 51 km out of plane, a box (not an
+#: ellipsoid) in each object's own RTN frame, checked from both objects.
+#: SpaceX reports a close approach when the local minimum of range falls
+#: inside it, then computes 2D Alfano Pc from the submitted covariances.
+#: The box is a filter, not a risk measure.
 #: Source: https://docs.space-safety.starlink.com/docs/tutorial-basics/architecture/
-#: Note that 44 and 51 km are exactly the 19th Space Defense Squadron LEO-1
-#: regime dimensions; SpaceX inflated only the radial term (0.4 -> 2 km),
-#: which is a rational adaptation for continuously-maneuvering spacecraft
-#: whose altitude uncertainty genuinely exceeds that of a ballistic object.
+#: These are exactly the 18/19 SDS "Early Orbit" near-Earth screening volume
+#: (Spaceflight Safety Handbook for Operators, Table 7: 2 x 44 x 51 km,
+#: 7 days), the most generous standard near-Earth volume. For Starlink's own
+#: altitude, 19 SDS's standard operator-ephemeris volume is 2 x 25 x 25 km
+#: (Table 4). Measured on TLE data (2026-09-18): passes excluded by the
+#: 2 km radial slab reach Pc 3.6e-7 at most, so the thin radial side is sound.
 SCREENING_BOX_STARLINK_KM = (2.0, 44.0, 51.0)
 
 #: 19 SDS LEO-1 regime (perigee <= 500 km, e < 0.25), ellipsoid half-axes.
